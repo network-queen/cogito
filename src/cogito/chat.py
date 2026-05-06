@@ -36,7 +36,7 @@ from .tool_manager import all_models, model_catalog
 COMMAND_HELP = [
     ("/model [MODEL]", "show or change active model"),
     ("/models", "list detected models"),
-    ("/persona add NAME MODEL DESCRIPTION", "create persona"),
+    ("/persona add NAME MODEL [DESCRIPTION]", "create persona; auto-researches when description is omitted"),
     ("/persona list", "list personas"),
     ("/persona use NAME", "set active persona"),
     ("/persona show NAME", "show persona"),
@@ -58,6 +58,7 @@ COMMAND_HELP = [
 COMMAND_EXAMPLES = [
     "/chat-model qwen3:0.6b",
     "/model gpt-5.5",
+    "/persona add aristotle gpt-5.5",
     "/persona add architect gpt-5.5 Senior pragmatic software architect.",
     "/persona research architect Martin Fowler",
     "/persona knowledge architect Prefers evolutionary architecture over large speculative rewrites.",
@@ -566,14 +567,24 @@ def handle_persona_command(
         return True, session, active_persona
     action = parts[1]
     if action == "add":
-        if len(parts) < 5:
-            write(output_stream, "Usage: /persona add NAME MODEL DESCRIPTION")
+        if len(parts) < 4:
+            write(output_stream, "Usage: /persona add NAME MODEL [DESCRIPTION]")
             return True, session, active_persona
         name, model = parts[2], parts[3]
-        description = " ".join(parts[4:])
+        should_research = len(parts) == 4
+        description = " ".join(parts[4:]) if len(parts) > 4 else f"Public persona researched as {name}."
         persona = add_persona_for_model(conn, name=name, model=model, description=description)
+        imported = 0
+        if should_research:
+            try:
+                imported = len(research_persona_from_wikipedia(conn, persona_name=name, subject=name))
+            except Exception as exc:
+                write(output_stream, f"Persona saved, but research failed: {exc}")
+                return True, session, active_persona
         if verbose:
             write(output_stream, f"Persona saved: {persona['name']}")
+        elif should_research:
+            write(output_stream, f"Persona saved with {imported} researched chunks.")
         return True, session, active_persona
     if action == "use":
         if len(parts) != 3:
@@ -974,7 +985,7 @@ def get_persona_hint(text: str) -> str:
 
 
 def persona_add_hint(text: str) -> str:
-    fields = ["NAME", "MODEL", "DESCRIPTION"]
+    fields = ["NAME", "MODEL", "[DESCRIPTION]"]
     parts = text.split()
     completed = max(0, len(parts) - 2)
     if completed and not text.endswith(" "):

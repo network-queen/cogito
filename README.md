@@ -91,6 +91,7 @@ cogito chat --yolo
 Create personas:
 
 ```text
+> /persona add aristotle gpt-5.5
 > /persona add architect gpt-5.5 Senior pragmatic software architect.
 > /persona add explainer sonnet Patient teacher who explains tradeoffs.
 > /persona research architect Martin Fowler
@@ -100,7 +101,7 @@ Create personas:
 > @me decide based on what you know about me
 ```
 
-Persona descriptions stay in the persona table. Persona knowledge is separate RAG data in `persona_knowledge` and is injected only when that persona is called and the fact is relevant to the prompt. `/persona research NAME SUBJECT` imports compact public background from Wikipedia for historical or public personas; `/persona knowledge NAME TEXT` adds your own curated facts. `@me` is a built-in self-persona that uses permitted user memories from Cogito's normal access policy rather than a separate public-character RAG store.
+Persona descriptions stay in the persona table. Persona knowledge is separate RAG data in `persona_knowledge` and is injected only when that persona is called and the fact is relevant to the prompt. If you omit DESCRIPTION in `/persona add NAME MODEL`, Cogito automatically researches `NAME` from the internet and stores compact background chunks. `/persona research NAME SUBJECT` imports or refreshes public background manually; `/persona knowledge NAME TEXT` adds your own curated facts. `@me` is a built-in self-persona that uses permitted user memories from Cogito's normal access policy rather than a separate public-character RAG store.
 
 Slash commands and `@persona` names autocomplete with Tab in an interactive terminal.
 Typing `/` or `/per` and pressing Enter shows matching commands. `/help` shows full command reference. Prompts, personas, and metadata lists use terminal colors.

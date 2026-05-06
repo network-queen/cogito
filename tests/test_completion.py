@@ -56,15 +56,15 @@ class CompletionTests(unittest.TestCase):
 
         self.assertIn(("gpt-5.5 ", "gpt-5.5", "model", 0), prompt_completions(conn, "/model "))
         self.assertIn(("gpt-5.5 ", "gpt-5.5", "model; adapter inferred", -2), prompt_completions(conn, "/persona add boo gp"))
-        self.assertEqual(get_instruction_hint("/persona add"), "next: NAME MODEL DESCRIPTION")
-        self.assertEqual(get_instruction_hint("/persona add boo"), "next: MODEL DESCRIPTION")
-        self.assertEqual(get_instruction_hint("/persona add boo gpt-5.5"), "next: DESCRIPTION")
+        self.assertEqual(get_instruction_hint("/persona add"), "next: NAME MODEL [DESCRIPTION]")
+        self.assertEqual(get_instruction_hint("/persona add boo"), "next: MODEL [DESCRIPTION]")
+        self.assertEqual(get_instruction_hint("/persona add boo gpt-5.5"), "next: [DESCRIPTION]")
 
     def test_command_matches_filter_by_substring(self):
         matches = command_matches("/per")
 
         commands = [command for command, _ in matches]
-        self.assertIn("/persona add NAME MODEL DESCRIPTION", commands)
+        self.assertIn("/persona add NAME MODEL [DESCRIPTION]", commands)
         self.assertNotIn("/tool local|codex|claude|opencode", commands)
 
     def test_command_match_output_prints_options(self):
