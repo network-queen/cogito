@@ -6,6 +6,7 @@ from collections import Counter
 from typing import Any
 
 from .db import init_db, row_to_dict, rows_to_dicts
+from .embeddings import cosine_similarity, decode_embedding, embed_query
 from .ids import new_id
 from .policy import ContextRequest, memory_allowed
 
@@ -109,9 +110,39 @@ def search_memories(
 ) -> list[dict[str, Any]]:
     memories = list_memories(conn)
     filtered = [memory for memory in memories if memory_allowed(memory, request)]
+    vector_results = search_memories_by_embedding(conn, query=query, memories=filtered, limit=limit)
+    if vector_results:
+        return vector_results
     scored = [(score_memory(query, memory), memory) for memory in filtered]
     scored.sort(key=lambda item: item[0], reverse=True)
     return [memory | {"score": score} for score, memory in scored[:limit] if score > 0]
+
+
+def search_memories_by_embedding(
+    conn: sqlite3.Connection,
+    *,
+    query: str,
+    memories: list[dict[str, Any]],
+    limit: int,
+) -> list[dict[str, Any]]:
+    if not any(memory.get("embedding") for memory in memories):
+        return []
+    try:
+        query_vector, model = embed_query(conn, query)
+    except Exception:
+        return []
+    scored = []
+    for memory in memories:
+        if memory.get("embedding_model") != model or not memory.get("embedding"):
+            continue
+        vector = decode_embedding(memory.get("embedding"))
+        if vector is None:
+            continue
+        score = cosine_similarity(query_vector, vector)
+        if score > 0.2:
+            scored.append((score, memory))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [memory | {"score": score, "score_source": "embedding"} for score, memory in scored[:limit]]
 
 
 def score_memory(query: str, memory: dict[str, Any]) -> float:
@@ -209,4 +240,3 @@ def explain_memory(conn: sqlite3.Connection, memory_id: str) -> dict[str, Any]:
         ).fetchall()
     )
     return {"memory": memory, "source_event": source_event, "receipts": receipts}
-

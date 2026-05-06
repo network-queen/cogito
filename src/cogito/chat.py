@@ -6,7 +6,7 @@ from typing import TextIO
 
 from .memory import list_memories
 from .personas import add_persona, delete_persona, get_persona, list_personas, maybe_extract_persona_call
-from .settings import get_memory_model, set_memory_model
+from .settings import get_embedding_model, get_memory_model, set_embedding_model, set_memory_model
 from .sessions import ask_session, create_session, get_session, process_pending_memory_jobs, set_session_agent
 
 
@@ -19,6 +19,7 @@ COMMAND_HELP = [
     ("/persona delete NAME", "delete persona"),
     ("/persona clear", "clear active persona"),
     ("/memory-model [MODEL]", "show or change memory extractor"),
+    ("/embedding-model [MODEL]", "show or change relevance embeddings"),
     ("/memories", "show memories"),
     ("/session", "show session info"),
     ("/verbose on|off", "toggle metadata"),
@@ -32,6 +33,7 @@ COMMAND_EXAMPLES = [
     "/persona use architect",
     "@architect review this design",
     "/memory-model qwen3:1.7b",
+    "/embedding-model nomic-embed-text",
 ]
 
 
@@ -184,6 +186,13 @@ def handle_command(
             return True, session, active_persona
         model = set_memory_model(conn, " ".join(parts[1:]))
         write(output_stream, f"Memory model: {model}")
+        return True, session, active_persona
+    if name == "/embedding-model":
+        if len(parts) == 1:
+            write(output_stream, f"Embedding model: {get_embedding_model(conn)}")
+            return True, session, active_persona
+        model = set_embedding_model(conn, " ".join(parts[1:]))
+        write(output_stream, f"Embedding model: {model}")
         return True, session, active_persona
     write(output_stream, f"Unknown command: {name}. Use /help.")
     return True, session, active_persona

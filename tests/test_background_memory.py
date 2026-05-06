@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 from cogito.db import connect
 from cogito.memory import ensure_db, list_memories
 from cogito.sessions import ask_session, create_session, process_pending_memory_jobs
-from cogito.settings import set_memory_model
+from cogito.settings import set_embedding_model, set_memory_model
 
 
 class BackgroundMemoryTests(unittest.TestCase):
@@ -15,6 +15,7 @@ class BackgroundMemoryTests(unittest.TestCase):
         conn = connect(":memory:")
         ensure_db(conn)
         set_memory_model(conn, "heuristic")
+        set_embedding_model(conn, "off")
         session = create_session(conn, title="Memory background")
 
         result = ask_session(
@@ -34,6 +35,7 @@ class BackgroundMemoryTests(unittest.TestCase):
             conn = connect(db_path)
             ensure_db(conn)
             set_memory_model(conn, "heuristic")
+            set_embedding_model(conn, "off")
             session = create_session(conn, title="Memory background")
 
             ask_session(
@@ -60,6 +62,7 @@ class BackgroundMemoryTests(unittest.TestCase):
             conn = connect(db_path)
             ensure_db(conn)
             set_memory_model(conn, "heuristic")
+            set_embedding_model(conn, "off")
             session = create_session(conn, title="Memory background")
 
             ask_session(

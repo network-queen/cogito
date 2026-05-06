@@ -18,6 +18,13 @@ Cogito stores user memories from agent interactions, applies deterministic acces
 ## Quick Start
 
 ```sh
+sh scripts/bootstrap.sh
+.venv/bin/cogito
+```
+
+Manual native setup:
+
+```sh
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -e .
@@ -85,8 +92,22 @@ Default memory extractor:
 ollama:qwen3:0.6b
 ```
 
-Cogito auto-starts Ollama and pulls the model when possible. If Ollama is unavailable, it falls back to local heuristics.
+Default relevance model:
+
+```text
+ollama:nomic-embed-text
+```
+
+Cogito auto-starts Ollama and pulls these models when possible. If Ollama is unavailable, memory extraction and retrieval fall back to local heuristics.
 During chat, memory extraction runs silently in the background through a durable SQLite job queue. User prompts are routed to the selected agent without waiting for the memory model.
+
+Docker Compose runs the local model service:
+
+```sh
+docker compose up -d ollama
+```
+
+Cogito itself runs on the host so it can launch your installed Codex, Claude Code, and opencode CLIs with their existing auth.
 
 Keep one Cogito session while switching tools:
 

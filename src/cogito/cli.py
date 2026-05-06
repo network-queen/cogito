@@ -20,7 +20,7 @@ from .memory import (
     search_memories,
 )
 from .policy import ContextRequest
-from .settings import get_memory_model, set_memory_model
+from .settings import get_embedding_model, get_memory_model, set_embedding_model, set_memory_model
 from .sessions import ask_session, create_session, list_sessions, set_session_agent
 
 
@@ -120,6 +120,10 @@ def build_parser() -> argparse.ArgumentParser:
     memory_model = sub.add_parser("memory-model", help="Show or change local model used for memory extraction")
     memory_model.add_argument("model", nargs="?", help="Example: qwen3:0.6b or ollama:qwen3:1.7b")
     memory_model.set_defaults(func=cmd_memory_model)
+
+    embedding_model = sub.add_parser("embedding-model", help="Show or change local model used for memory relevance")
+    embedding_model.add_argument("model", nargs="?", help="Example: nomic-embed-text or ollama:mxbai-embed-large")
+    embedding_model.set_defaults(func=cmd_embedding_model)
 
     session = sub.add_parser("session", help="Manage Cogito sessions")
     session_sub = session.add_subparsers(required=True)
@@ -299,6 +303,14 @@ def cmd_memory_model(conn, args: argparse.Namespace) -> int:
         print(set_memory_model(conn, args.model))
     else:
         print(get_memory_model(conn))
+    return 0
+
+
+def cmd_embedding_model(conn, args: argparse.Namespace) -> int:
+    if args.model:
+        print(set_embedding_model(conn, args.model))
+    else:
+        print(get_embedding_model(conn))
     return 0
 
 

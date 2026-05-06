@@ -4,7 +4,7 @@ import unittest
 
 from cogito.db import connect
 from cogito.memory import add_memory, ensure_db
-from cogito.settings import set_memory_model
+from cogito.settings import set_embedding_model, set_memory_model
 from cogito.sessions import ask_session, create_session, get_turns, set_session_agent
 
 
@@ -13,6 +13,7 @@ class SessionTests(unittest.TestCase):
         conn = connect(":memory:")
         ensure_db(conn)
         set_memory_model(conn, "heuristic")
+        set_embedding_model(conn, "off")
         add_memory(
             conn,
             text="User is building Cogito Ergo Sum.",

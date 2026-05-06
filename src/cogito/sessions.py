@@ -10,6 +10,7 @@ from .db import connect, row_to_dict, rows_to_dicts
 from .ids import new_id
 from .local_extractor import extract_with_model
 from .memory import add_event, add_memory, context_pack
+from .embeddings import ensure_memory_embedding
 from .policy import ContextRequest
 from .settings import get_memory_model
 
@@ -237,17 +238,20 @@ def extract_and_store_memories(conn: sqlite3.Connection, *, event_id: str, text:
     for candidate in candidates:
         if memory_text_exists(conn, candidate["text"]):
             continue
-        memories.append(
-            add_memory(
-                conn,
-                text=candidate["text"],
-                memory_type=candidate["type"],
-                sensitivity=candidate["sensitivity"],
-                contexts=candidate["contexts"],
-                confidence=candidate["confidence"],
-                source_event_id=event_id,
-            )
+        memory = add_memory(
+            conn,
+            text=candidate["text"],
+            memory_type=candidate["type"],
+            sensitivity=candidate["sensitivity"],
+            contexts=candidate["contexts"],
+            confidence=candidate["confidence"],
+            source_event_id=event_id,
         )
+        try:
+            memory = ensure_memory_embedding(conn, memory)
+        except Exception:
+            pass
+        memories.append(memory)
     if memories:
         for memory in memories:
             memory["extractor"] = source

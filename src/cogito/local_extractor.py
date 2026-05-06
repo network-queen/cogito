@@ -11,7 +11,7 @@ from typing import Any
 from .extraction import classify_candidate, extract_candidate_memories
 
 
-OLLAMA_URL = "http://localhost:11434"
+DEFAULT_OLLAMA_URL = "http://localhost:11434"
 
 
 def extract_with_model(text: str, model_spec: str) -> tuple[list[dict[str, Any]], str]:
@@ -81,7 +81,11 @@ def wait_for_ollama(timeout: float = 10.0) -> None:
 def ollama_has_model(model: str) -> bool:
     payload = request_json("/api/tags")
     names = {item.get("name") for item in payload.get("models", [])}
-    return model in names
+    if model in names:
+        return True
+    if ":" not in model:
+        return f"{model}:latest" in names
+    return False
 
 
 def ollama_generate(model: str, prompt: str) -> str:
@@ -98,16 +102,40 @@ def ollama_generate(model: str, prompt: str) -> str:
     return str(payload.get("response", "[]"))
 
 
+def ollama_embed(model: str, text: str) -> list[float]:
+    ensure_ollama(model)
+    payload = request_json(
+        "/api/embed",
+        {
+            "model": model,
+            "input": text,
+        },
+    )
+    embeddings = payload.get("embeddings")
+    if isinstance(embeddings, list) and embeddings and isinstance(embeddings[0], list):
+        return [float(value) for value in embeddings[0]]
+    embedding = payload.get("embedding")
+    if isinstance(embedding, list):
+        return [float(value) for value in embedding]
+    raise RuntimeError("ollama embed response missing embedding")
+
+
 def request_json(path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     req = urllib.request.Request(
-        OLLAMA_URL + path,
+        ollama_url() + path,
         data=data,
         headers={"Content-Type": "application/json"},
         method="POST" if payload is not None else "GET",
     )
     with urllib.request.urlopen(req, timeout=120 if payload else 5) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def ollama_url() -> str:
+    import os
+
+    return os.environ.get("OLLAMA_URL", DEFAULT_OLLAMA_URL).rstrip("/")
 
 
 def parse_json_array(value: str) -> list[Any]:

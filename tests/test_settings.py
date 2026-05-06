@@ -4,7 +4,7 @@ import unittest
 
 from cogito.db import connect
 from cogito.memory import ensure_db
-from cogito.settings import get_memory_model, set_memory_model
+from cogito.settings import get_embedding_model, get_memory_model, set_embedding_model, set_memory_model
 
 
 class SettingsTests(unittest.TestCase):
@@ -13,9 +13,12 @@ class SettingsTests(unittest.TestCase):
         ensure_db(conn)
 
         self.assertEqual(get_memory_model(conn), "ollama:qwen3:0.6b")
+        self.assertEqual(get_embedding_model(conn), "ollama:nomic-embed-text")
         self.assertEqual(set_memory_model(conn, "qwen3:1.7b"), "ollama:qwen3:1.7b")
         self.assertEqual(get_memory_model(conn), "ollama:qwen3:1.7b")
         self.assertEqual(set_memory_model(conn, "heuristic"), "heuristic")
+        self.assertEqual(set_embedding_model(conn, "off"), "off")
+        self.assertEqual(set_embedding_model(conn, "nomic-embed-text"), "ollama:nomic-embed-text")
 
 
 if __name__ == "__main__":
