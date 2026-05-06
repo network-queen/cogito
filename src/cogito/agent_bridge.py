@@ -9,12 +9,29 @@ from .memory import context_pack
 from .policy import ContextRequest
 
 
-AGENT_COMMANDS = {
-    "codex": lambda prompt: ["codex", "exec", prompt],
-    "codex-exec": lambda prompt: ["codex", "exec", prompt],
-    "claude": lambda prompt: ["claude", "-p", prompt],
-    "opencode": lambda prompt: ["opencode", "run", prompt],
-}
+def build_agent_command(agent: str, prompt: str, *, yolo: bool = False, model: str | None = None) -> list[str]:
+    if agent in {"codex", "codex-exec"}:
+        command = ["codex", "exec"]
+        if yolo:
+            command.append("--dangerously-bypass-approvals-and-sandbox")
+        if model:
+            command.extend(["-m", model])
+        return command + [prompt]
+    if agent == "claude":
+        command = ["claude", "-p"]
+        if yolo:
+            command.append("--dangerously-skip-permissions")
+        if model:
+            command.extend(["--model", model])
+        return command + [prompt]
+    if agent == "opencode":
+        command = ["opencode", "run"]
+        if yolo:
+            command.append("--dangerously-skip-permissions")
+        if model:
+            command.extend(["-m", model])
+        return command + [prompt]
+    raise ValueError(f"unsupported agent: {agent}")
 
 
 def build_enriched_prompt(context: str, user_prompt: str) -> str:
@@ -32,15 +49,20 @@ def get_prompt(conn, *, user_prompt: str, request: ContextRequest, limit: int) -
     return build_enriched_prompt(pack["context"], user_prompt)
 
 
-def run_agent(agent: str, prompt: str) -> int:
-    result = run_agent_capture(agent, prompt, stream=True)
+def run_agent(agent: str, prompt: str, *, yolo: bool = False, model: str | None = None) -> int:
+    result = run_agent_capture(agent, prompt, stream=True, yolo=yolo, model=model)
     return int(result["exit_code"])
 
 
-def run_agent_capture(agent: str, prompt: str, *, stream: bool = True) -> dict[str, str | int]:
-    if agent not in AGENT_COMMANDS:
-        raise ValueError(f"unsupported agent: {agent}")
-    command = AGENT_COMMANDS[agent](prompt)
+def run_agent_capture(
+    agent: str,
+    prompt: str,
+    *,
+    stream: bool = True,
+    yolo: bool = False,
+    model: str | None = None,
+) -> dict[str, str | int]:
+    command = build_agent_command(agent, prompt, yolo=yolo, model=model)
     binary = command[0]
     if shutil.which(binary) is None:
         raise RuntimeError(f"{binary} not found in PATH")

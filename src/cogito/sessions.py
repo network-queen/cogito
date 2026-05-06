@@ -116,6 +116,9 @@ def ask_session(
     auto_memory: bool = True,
     memory_mode: str = "sync",
     stream: bool = True,
+    yolo: bool = False,
+    model: str | None = None,
+    persona: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     session = get_session(conn, session_id)
     selected_agent = agent or session["active_agent"]
@@ -137,7 +140,13 @@ def ask_session(
     )
     add_turn(conn, session_id=session_id, agent=selected_agent, role="user", content=user_prompt)
     pack = context_pack(conn, query=user_prompt, request=request, limit=limit)
-    prompt = build_session_prompt(session=session, turns=get_turns(conn, session_id=session_id), context=pack["context"], user_prompt=user_prompt)
+    prompt = build_session_prompt(
+        session=session,
+        turns=get_turns(conn, session_id=session_id),
+        context=pack["context"],
+        user_prompt=user_prompt,
+        persona=persona,
+    )
     stored_memories: list[dict[str, Any]] = []
     if auto_memory:
         if memory_mode == "background":
@@ -149,7 +158,7 @@ def ask_session(
     exit_code = None
     output = ""
     if execute:
-        result = run_agent_capture(selected_agent, prompt, stream=stream)
+        result = run_agent_capture(selected_agent, prompt, stream=stream, yolo=yolo, model=model)
         exit_code = int(result["exit_code"])
         output = str(result["output"])
         add_turn(
@@ -178,6 +187,7 @@ def build_session_prompt(
     turns: list[dict[str, Any]],
     context: str,
     user_prompt: str,
+    persona: dict[str, Any] | None = None,
 ) -> str:
     recent = "\n".join(
         f"- {turn['role']} via {turn['agent']}: {compact(turn['content'], 240)}"
@@ -192,6 +202,17 @@ def build_session_prompt(
         session_block.append(f"Session summary: {session['summary']}")
     if recent:
         session_block.extend(["Recent session turns:", recent])
+    if persona:
+        session_block.extend(
+            [
+                "",
+                f"Active persona: {persona['name']}",
+                f"Persona tool: {persona['agent']}",
+                f"Persona model: {persona.get('model') or 'default'}",
+                "Persona instructions:",
+                persona["description"],
+            ]
+        )
     session_context = "\n".join(session_block)
     return build_enriched_prompt(f"{session_context}\n\n{context}", user_prompt)
 

@@ -87,12 +87,24 @@ CREATE TABLE IF NOT EXISTS memory_jobs (
   FOREIGN KEY(event_id) REFERENCES events(id)
 );
 
+CREATE TABLE IF NOT EXISTS personas (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  agent TEXT NOT NULL,
+  model TEXT,
+  description TEXT NOT NULL,
+  yolo INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_memories_state ON memories(state);
 CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type);
 CREATE INDEX IF NOT EXISTS idx_memories_sensitivity ON memories(sensitivity);
 CREATE INDEX IF NOT EXISTS idx_events_source ON events(source);
 CREATE INDEX IF NOT EXISTS idx_session_turns_session ON session_turns(session_id);
 CREATE INDEX IF NOT EXISTS idx_memory_jobs_state ON memory_jobs(state);
+CREATE INDEX IF NOT EXISTS idx_personas_name ON personas(name);
 """
 
 

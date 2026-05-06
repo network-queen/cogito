@@ -25,6 +25,12 @@ from .sessions import ask_session, create_session, list_sessions, set_session_ag
 
 
 def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+    if not argv:
+        argv = ["chat"]
+    elif argv[0] == "--yolo":
+        argv = ["chat", *argv]
     parser = build_parser()
     args = parser.parse_args(argv)
     conn = connect(args.db)
@@ -84,6 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument("query")
     add_policy_args(ask)
     ask.add_argument("--limit", type=int, default=8)
+    ask.add_argument("--yolo", action="store_true", help="Bypass underlying agent permission prompts where supported")
     ask.set_defaults(func=cmd_ask)
 
     run = sub.add_parser("run", help="Start or continue a Cogito-owned session with selected agent")
@@ -95,6 +102,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--max-sensitivity", default="professional")
     run.add_argument("--limit", type=int, default=8)
     run.add_argument("--print-prompt", action="store_true", help="Print enriched prompt instead of executing agent")
+    run.add_argument("--yolo", action="store_true", help="Bypass underlying agent permission prompts where supported")
     run.set_defaults(func=cmd_run)
 
     chat = sub.add_parser("chat", help="Enter a Cogito terminal chat that routes turns to selected agent")
@@ -105,6 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
     chat.add_argument("--max-sensitivity", default="professional")
     chat.add_argument("--print-prompt", action="store_true", help="Print enriched prompts instead of executing agents")
     chat.add_argument("--memory-mode", choices=["background", "sync", "off"], default="background")
+    chat.add_argument("--yolo", action="store_true", help="Bypass underlying agent permission prompts where supported")
     chat.set_defaults(func=cmd_chat)
 
     memory_model = sub.add_parser("memory-model", help="Show or change local model used for memory extraction")
@@ -238,7 +247,7 @@ def cmd_prompt(conn, args: argparse.Namespace) -> int:
 
 def cmd_ask(conn, args: argparse.Namespace) -> int:
     prompt = get_prompt(conn, user_prompt=args.query, request=request_from_args(args), limit=args.limit)
-    return run_agent(args.agent, prompt)
+    return run_agent(args.agent, prompt, yolo=args.yolo)
 
 
 def cmd_run(conn, args: argparse.Namespace) -> int:
@@ -260,6 +269,7 @@ def cmd_run(conn, args: argparse.Namespace) -> int:
         agent=args.agent,
         limit=args.limit,
         execute=not args.print_prompt,
+        yolo=args.yolo,
     )
     if args.print_prompt:
         print(result["prompt"])
@@ -278,6 +288,7 @@ def cmd_chat(conn, args: argparse.Namespace) -> int:
         max_sensitivity=args.max_sensitivity,
         execute=not args.print_prompt,
         memory_mode=args.memory_mode,
+        yolo=args.yolo,
     )
 
 

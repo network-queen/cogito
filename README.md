@@ -29,6 +29,7 @@ cogito context-pack "software architecture" --lens coding --max-sensitivity prof
 Run an agent with Cogito context prepended:
 
 ```sh
+cogito
 cogito chat
 cogito ask codex "help me design the next Cogito feature"
 cogito ask claude "summarize what this project does"
@@ -45,6 +46,21 @@ cogito[claude]> /memory-model
 cogito[claude]> /memory-model qwen3:1.7b
 cogito[claude]> /memories
 cogito[claude]> /exit
+```
+
+Skip underlying tool permission prompts where supported:
+
+```sh
+cogito chat --yolo
+```
+
+Create personas:
+
+```text
+cogito[codex]> /persona add architect codex gpt-5.5 Senior pragmatic software architect.
+cogito[codex]> /persona add explainer claude sonnet Patient teacher who explains tradeoffs.
+cogito[codex]> @architect review this design
+cogito[codex]> @explainer explain what architect suggested
 ```
 
 Default memory extractor:
