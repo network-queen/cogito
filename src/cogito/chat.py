@@ -67,11 +67,7 @@ def run_chat(
     while True:
         try:
             if input_stream is sys.stdin:
-                prompt = ""
-                if interactive:
-                    label = f"cogito[{session['active_agent']}]" if verbose else ">"
-                    prompt = color(label, "cyan") + " "
-                line = input(prompt)
+                line = read_interactive_line(conn, session=session, verbose=verbose, interactive=interactive)
             else:
                 line = input_stream.readline()
                 if line == "":
@@ -355,6 +351,72 @@ def setup_autocomplete(conn: sqlite3.Connection) -> None:
 
     readline.set_completer(complete)
     readline.parse_and_bind("tab: complete")
+
+
+def read_interactive_line(conn: sqlite3.Connection, *, session: dict, verbose: bool, interactive: bool) -> str:
+    if interactive:
+        prompt_toolkit_line = read_with_prompt_toolkit(conn, session=session, verbose=verbose)
+        if prompt_toolkit_line is not None:
+            return prompt_toolkit_line
+    prompt = ""
+    if interactive:
+        label = f"cogito[{session['active_agent']}]" if verbose else ">"
+        prompt = color(label, "cyan") + " "
+    return input(prompt)
+
+
+def read_with_prompt_toolkit(conn: sqlite3.Connection, *, session: dict, verbose: bool) -> str | None:
+    try:
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.formatted_text import HTML
+    except ImportError:
+        return None
+
+    label = f"cogito[{session['active_agent']}]" if verbose else ">"
+    prompt = HTML(f"<ansicyan>{label}</ansicyan> ")
+    prompt_session = PromptSession(
+        completer=CogitoCompleter(conn),
+        complete_while_typing=True,
+        reserve_space_for_menu=8,
+    )
+    return prompt_session.prompt(prompt)
+
+
+class CogitoCompleter:
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+
+    def get_completions(self, document, complete_event):
+        try:
+            from prompt_toolkit.completion import Completion
+        except ImportError:
+            return
+        text = document.text_before_cursor
+        for value, meta, start_position in prompt_completions(self.conn, text):
+            yield Completion(value, start_position=start_position, display=value, display_meta=meta)
+
+
+def prompt_completions(conn: sqlite3.Connection, text: str) -> list[tuple[str, str, int]]:
+    if text.startswith("@"):
+        return [
+            (f"@{persona['name']} ", persona["agent"], -len(text))
+            for persona in list_personas(conn)
+            if f"@{persona['name']}".startswith(text)
+        ]
+    for prefix in ("/persona use ", "/persona show ", "/persona delete "):
+        if text.startswith(prefix):
+            fragment = text.removeprefix(prefix)
+            return [
+                (persona["name"], persona["agent"], -len(fragment))
+                for persona in list_personas(conn)
+                if persona["name"].startswith(fragment)
+            ]
+    if text.startswith("/"):
+        return [
+            (command, description, -len(text))
+            for command, description in command_matches(text)
+        ]
+    return []
 
 
 def completion_options(conn: sqlite3.Connection, line: str, text: str, commands: list[str]) -> list[str]:
