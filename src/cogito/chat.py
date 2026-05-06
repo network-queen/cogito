@@ -22,7 +22,16 @@ COMMAND_HELP = [
     ("/memories", "show memories"),
     ("/session", "show session info"),
     ("/verbose on|off", "toggle metadata"),
+    ("/help", "show full command reference"),
     ("/exit", "leave Cogito"),
+]
+
+COMMAND_EXAMPLES = [
+    "/tool claude",
+    "/persona add architect codex gpt-5.5 Senior pragmatic software architect.",
+    "/persona use architect",
+    "@architect review this design",
+    "/memory-model qwen3:1.7b",
 ]
 
 
@@ -75,10 +84,10 @@ def run_chat(
         text = line.strip()
         if not text:
             continue
-        if text == "/":
-            show_command_palette(output_stream)
-            continue
         if text.startswith("/"):
+            if not is_known_command(text):
+                show_command_matches(output_stream, text)
+                continue
             should_continue, session, active_persona = handle_command(
                 conn,
                 text,
@@ -135,8 +144,7 @@ def handle_command(
     if name in {"/exit", "/quit", "/q"}:
         return False, session, active_persona
     if name == "/help":
-        show_command_palette(output_stream)
-        write(output_stream, "Persona call: @name your request")
+        show_help(output_stream)
         return True, session, active_persona
     if name == "/verbose":
         if len(parts) != 2 or parts[1] not in {"on", "off"}:
@@ -269,9 +277,37 @@ def write(stream: TextIO, text: str) -> None:
     stream.flush()
 
 
-def show_command_palette(output_stream: TextIO) -> None:
+def is_known_command(text: str) -> bool:
+    command_names = {command.split()[0] for command, _ in COMMAND_HELP}
+    return text.split()[0] in command_names
+
+
+def show_command_matches(output_stream: TextIO, prefix: str) -> None:
+    matches = command_matches(prefix)
+    if not matches:
+        write(output_stream, muted(f"No commands match {prefix}"))
+        return
+    for command, description in matches:
+        write(output_stream, f"{color(command, 'cyan')} {muted(description)}")
+
+
+def show_help(output_stream: TextIO) -> None:
+    write(output_stream, color("Commands", "cyan"))
     for command, description in COMMAND_HELP:
         write(output_stream, f"{color(command, 'cyan')} {muted(description)}")
+    write(output_stream, "")
+    write(output_stream, color("Examples", "cyan"))
+    for example in COMMAND_EXAMPLES:
+        write(output_stream, f"  {example}")
+
+
+def command_matches(prefix: str) -> list[tuple[str, str]]:
+    normalized = prefix.lower()
+    return [
+        (command, description)
+        for command, description in COMMAND_HELP
+        if command.lower().startswith(normalized) or normalized in command.lower()
+    ]
 
 
 def color(text: str, name: str) -> str:
