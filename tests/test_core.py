@@ -56,6 +56,34 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["type"], "preference")
 
+    def test_existing_db_without_embedding_columns_migrates_before_indexing(self):
+        conn = connect(":memory:")
+        conn.executescript(
+            """
+            CREATE TABLE memories (
+              id TEXT PRIMARY KEY,
+              text TEXT NOT NULL,
+              type TEXT NOT NULL,
+              sensitivity TEXT NOT NULL,
+              contexts TEXT NOT NULL,
+              confidence REAL NOT NULL,
+              source_event_id TEXT,
+              state TEXT NOT NULL DEFAULT 'active',
+              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              expires_at TEXT
+            );
+            """
+        )
+
+        ensure_db(conn)
+
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(memories)").fetchall()}
+        indexes = {row["name"] for row in conn.execute("PRAGMA index_list(memories)").fetchall()}
+        self.assertIn("embedding", columns)
+        self.assertIn("embedding_model", columns)
+        self.assertIn("idx_memories_embedding_model", indexes)
+
 
 if __name__ == "__main__":
     unittest.main()

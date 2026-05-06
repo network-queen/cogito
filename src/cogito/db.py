@@ -100,6 +100,9 @@ CREATE TABLE IF NOT EXISTS personas (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+"""
+
+INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_memories_state ON memories(state);
 CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type);
 CREATE INDEX IF NOT EXISTS idx_memories_sensitivity ON memories(sensitivity);
@@ -136,6 +139,7 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
     ensure_column(conn, "memories", "embedding", "TEXT")
     ensure_column(conn, "memories", "embedding_model", "TEXT")
+    conn.executescript(INDEXES)
     conn.commit()
 
 
