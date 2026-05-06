@@ -59,11 +59,13 @@ class CompletionTests(unittest.TestCase):
         self.assertIn(("gpt-5.5 ", "gpt-5.5", "model", 0), prompt_completions(conn, "/model "))
         self.assertIn(("gpt-5.5 ", "gpt-5.5", "model; adapter inferred", -2), prompt_completions(conn, "/persona create boo gp"))
         self.assertIn(("@me ", "@me", "research target", 0), prompt_completions(conn, "/research "))
+        self.assertIn(("@me ", "@me", "research target", 0), prompt_completions(conn, "/research-browser "))
         self.assertEqual(get_instruction_hint("/persona create"), "next: NAME MODEL DESCRIPTION")
         self.assertEqual(get_instruction_hint("/persona create boo"), "next: MODEL DESCRIPTION")
         self.assertEqual(get_instruction_hint("/persona create boo gpt-5.5"), "next: DESCRIPTION")
         self.assertEqual(get_instruction_hint("/persona historical boo gpt-5.5"), "next: [SUBJECT]")
         self.assertEqual(get_instruction_hint("/research @me"), "next: @TARGET URL_OR_QUERY")
+        self.assertEqual(get_instruction_hint("/research-browser @me"), "next: @TARGET URL_OR_QUERY")
         self.assertEqual(get_instruction_hint("/research @me https://example.com"), "next: URL_OR_QUERY")
 
     def test_command_matches_filter_by_substring(self):

@@ -5,7 +5,13 @@ from unittest.mock import patch
 
 from cogito.db import connect
 from cogito.memory import ensure_db, list_memories
-from cogito.osint import query_from_url, research_target, research_target_with_receipt
+from cogito.osint import (
+    browser_profile_dir,
+    query_from_url,
+    research_target,
+    research_target_with_browser_receipt,
+    research_target_with_receipt,
+)
 from cogito.persona_knowledge import list_persona_knowledge
 from cogito.personas import add_persona_for_model
 from cogito.settings import set_embedding_model
@@ -56,6 +62,17 @@ class OsintTests(unittest.TestCase):
         self.assertEqual(receipt["target"], "@me")
         self.assertEqual(receipt["query"], "Ruslan Klymenko")
         self.assertEqual(receipt["scanned_sources"][0]["url"], "https://example.com/ruslan")
+        self.assertEqual(receipt["saved_chunks"][0]["store"], "user_memory")
+
+    def test_browser_research_receipt_uses_browser_collection(self):
+        conn = connect(":memory:")
+        ensure_db(conn)
+        set_embedding_model(conn, "off")
+
+        with patch("cogito.osint.collect_browser_documents", return_value=fake_collection() | {"browser_profile": str(browser_profile_dir())}):
+            receipt = research_target_with_browser_receipt(conn, target="@me", source="https://example.com/ruslan")
+
+        self.assertIn("browser-profile", receipt["browser_profile"])
         self.assertEqual(receipt["saved_chunks"][0]["store"], "user_memory")
 
 

@@ -96,6 +96,7 @@ Create personas:
 > /persona list
 > /persona delete explainer
 > /research @me https://www.linkedin.com/in/ruslan-klymenko-927a6b67/
+> /research-browser @me https://www.linkedin.com/in/ruslan-klymenko-927a6b67/
 > /research @architect Martin Fowler evolutionary architecture
 > @architect review this design
 > @explainer explain what architect suggested
@@ -105,6 +106,8 @@ Create personas:
 Persona descriptions stay in the persona table. Persona knowledge is separate RAG data in `persona_knowledge` and is injected only when that persona is called and the fact is relevant to the prompt. `/persona historical NAME MODEL [SUBJECT]` researches a public or historical personality from the internet and stores compact background chunks. `/persona create NAME MODEL DESCRIPTION` creates a persona directly from your description. `@me` is a built-in self-persona that uses permitted user memories from Cogito's normal access policy rather than a separate public-character RAG store.
 
 Use `/research @TARGET URL_OR_QUERY` to enrich `@me` or any persona from open web research. Cogito fetches the provided URL when possible, derives a generic search query, follows search results from relevant sources, extracts readable text, and stores compact chunks into user memory for `@me` or persona RAG for other targets. It does not hardcode social platforms; LinkedIn, personal sites, GitHub, publications, interviews, and other public pages are discovered through the web search results that are available.
+
+Use `/research-browser @TARGET URL_OR_QUERY` when a page needs your logged-in browser, such as LinkedIn. Cogito opens a persistent local browser profile at `~/.local/share/cogito/browser-profile`; log in there once, then rerun the command. It extracts visible page text from that browser session and stores it into the same memory/RAG stores.
 
 Slash commands and `@persona` names autocomplete with Tab in an interactive terminal.
 Typing `/` or `/per` and pressing Enter shows matching commands. `/help` shows full command reference. Prompts, personas, and metadata lists use terminal colors. Up and Down traverse a shared history file at `~/.local/share/cogito/history`, so previous prompts are available after restarting Cogito.

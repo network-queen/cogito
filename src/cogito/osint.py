@@ -6,8 +6,10 @@ import sqlite3
 import urllib.parse
 import urllib.request
 from html.parser import HTMLParser
+from pathlib import Path
 from typing import Any
 
+from .db import default_db_path
 from .embeddings import ensure_memory_embedding
 from .memory import add_memory, list_memories
 from .persona_knowledge import add_persona_knowledge, chunk_text, list_persona_knowledge
@@ -133,6 +135,79 @@ def research_target_with_receipt(
     return collection | {"target": target, "created": created, "saved_chunks": saved_chunks}
 
 
+def research_target_with_browser_receipt(
+    conn: sqlite3.Connection,
+    *,
+    target: str,
+    source: str,
+    limit: int = 8,
+    wait_seconds: float = 10.0,
+) -> dict[str, Any]:
+    collection = collect_browser_documents(source, limit=limit, wait_seconds=wait_seconds)
+    return save_research_collection(conn, target=target, collection=collection)
+
+
+def save_research_collection(
+    conn: sqlite3.Connection,
+    *,
+    target: str,
+    collection: dict[str, Any],
+) -> dict[str, Any]:
+    target_name = target.removeprefix("@")
+    documents = collection["documents"]
+    created: list[dict[str, Any]] = []
+    saved_chunks: list[dict[str, str]] = []
+    seen = existing_texts(conn, target_name)
+    for document in documents:
+        for chunk in chunk_text(document["text"], max_chars=700)[:3]:
+            text = f"{chunk} (source: {document['url']})"
+            normalized = normalize_text(text)
+            if len(normalized) < 80 or normalized in seen:
+                continue
+            seen.add(normalized)
+            if target_name == "me":
+                memory = add_memory(
+                    conn,
+                    text=text,
+                    memory_type="public_research",
+                    sensitivity="professional",
+                    contexts=["professional", "public", "web"],
+                    confidence=0.65,
+                )
+                try:
+                    memory = ensure_memory_embedding(conn, memory)
+                except Exception:
+                    pass
+                created.append(memory)
+                saved_chunks.append(
+                    {
+                        "store": "user_memory",
+                        "id": memory["id"],
+                        "source_url": document["url"],
+                        "preview": preview_text(chunk),
+                    }
+                )
+            else:
+                item = add_persona_knowledge(
+                    conn,
+                    persona_name=target_name,
+                    text=chunk,
+                    knowledge_type="public_research",
+                    source_url=document["url"],
+                    confidence=0.65,
+                )
+                created.append(item)
+                saved_chunks.append(
+                    {
+                        "store": "persona_rag",
+                        "id": item["id"],
+                        "source_url": document["url"],
+                        "preview": preview_text(chunk),
+                    }
+                )
+    return collection | {"target": target, "created": created, "saved_chunks": saved_chunks}
+
+
 def collect_osint_documents(source: str, *, limit: int) -> dict[str, Any]:
     urls: list[str] = []
     if is_url(source):
@@ -171,6 +246,70 @@ def collect_osint_documents(source: str, *, limit: int) -> dict[str, Any]:
         "failed_sources": failed,
         "documents": documents,
     }
+
+
+def collect_browser_documents(source: str, *, limit: int, wait_seconds: float) -> dict[str, Any]:
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise RuntimeError("browser research needs playwright; run: .venv/bin/pip install -e .") from exc
+
+    query = query_from_url(source) if is_url(source) else source
+    target_url = source if is_url(source) else "https://duckduckgo.com/?" + urllib.parse.urlencode({"q": source})
+    profile_dir = browser_profile_dir()
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as p:
+        try:
+            context = p.chromium.launch_persistent_context(
+                str(profile_dir),
+                headless=False,
+                channel="chrome",
+                viewport={"width": 1440, "height": 1000},
+            )
+        except Exception:
+            try:
+                context = p.chromium.launch_persistent_context(
+                    str(profile_dir),
+                    headless=False,
+                    viewport={"width": 1440, "height": 1000},
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    "browser research needs Chrome or Playwright Chromium; "
+                    "install Chrome or run: .venv/bin/python -m playwright install chromium"
+                ) from exc
+        page = context.pages[0] if context.pages else context.new_page()
+        page.goto(target_url, wait_until="domcontentloaded", timeout=60_000)
+        try:
+            page.wait_for_load_state("networkidle", timeout=15_000)
+        except Exception:
+            pass
+        if wait_seconds > 0:
+            page.wait_for_timeout(int(wait_seconds * 1000))
+        current_url = page.url
+        title = page.title()
+        text = page.locator("body").inner_text(timeout=10_000)
+        links = page.eval_on_selector_all(
+            "a[href]",
+            "els => els.map(a => a.href).filter(Boolean).slice(0, 50)",
+        )
+        context.close()
+    documents = [{"url": current_url, "text": f"{title}\n{text}"}] if text.strip() else []
+    return {
+        "query": query,
+        "seed_urls": [source] if is_url(source) else [],
+        "discovered_urls": [url for url in links if isinstance(url, str)][:limit],
+        "scanned_sources": [
+            {"url": current_url, "chars": len(text), "preview": preview_text(text)}
+        ] if text.strip() else [],
+        "failed_sources": [] if text.strip() else [{"url": current_url, "error": "no visible text"}],
+        "documents": documents,
+        "browser_profile": str(profile_dir),
+    }
+
+
+def browser_profile_dir() -> Path:
+    return default_db_path().parent / "browser-profile"
 
 
 def search_web(query: str, *, limit: int) -> list[str]:
