@@ -314,6 +314,7 @@ def run_split_tui(
         "active_persona": None,
         "lines": [color("Cogito", "cyan") + " model-first chat"],
         "jobs": [],
+        "job_by_persona": {},
         "workers": {},
         "closed": False,
     }
@@ -333,7 +334,7 @@ def run_split_tui(
                 status = job["status"]
                 color_name = "ansigreen" if status == "done" else "ansiyellow" if status == "running" else "ansired"
                 header = f"<{color_name}>@{html.escape(job['persona'])} {html.escape(status)}</{color_name}> <ansigray>{html.escape(job['model'])}</ansigray>"
-                body = escape_terminal_html("\n".join(job["lines"][-80:]) or "waiting...")
+                body = escape_terminal_html("\n".join(job["lines"][-120:]) or "waiting...")
                 chunks.append(header + "\n" + body)
             separator = "\n\n<ansigray>" + ("-" * 36) + "</ansigray>\n\n"
             return HTML(separator.join(chunks))
@@ -378,19 +379,38 @@ def run_split_tui(
     def append_job(job: dict, text: str) -> None:
         with lock:
             job["lines"].append(clean_terminal_text(text.rstrip("\n")))
+            job["updated_at"] = time.time()
         if app_ref["app"]:
             app_ref["app"].invalidate()
 
-    def run_background_persona(persona: dict, prompt: str, routed_text: str) -> None:
+    def persona_job(persona: dict, routed_text: str) -> dict:
+        name = persona["name"]
         model_label = persona.get("model") or "default"
-        job = {
-            "persona": persona["name"],
-            "model": model_label,
-            "status": "running",
-            "lines": [f"started {time.strftime('%H:%M:%S')}", f"prompt: {routed_text}"],
-        }
         with lock:
-            state["jobs"].append(job)
+            job = state["job_by_persona"].get(name)
+            if job is None:
+                job = {
+                    "persona": name,
+                    "model": model_label,
+                    "status": "queued",
+                    "lines": [f"session started {time.strftime('%H:%M:%S')}"],
+                    "updated_at": time.time(),
+                }
+                state["job_by_persona"][name] = job
+                state["jobs"].append(job)
+            else:
+                job["model"] = model_label
+                job["status"] = "queued"
+                job["updated_at"] = time.time()
+            job["lines"].extend(["", f"> {routed_text}"])
+        if app_ref["app"]:
+            app_ref["app"].invalidate()
+        return job
+
+    def run_background_persona(persona: dict, prompt: str, routed_text: str) -> None:
+        job = persona_job(persona, routed_text)
+        with lock:
+            job["status"] = "running"
         if app_ref["app"]:
             app_ref["app"].invalidate()
 
