@@ -29,7 +29,7 @@ def main(argv: list[str] | None = None) -> int:
         argv = sys.argv[1:]
     if not argv:
         argv = ["chat"]
-    elif argv[0] == "--yolo":
+    elif argv[0] in {"--yolo", "--verbose", "--print-prompt", "--memory-mode"}:
         argv = ["chat", *argv]
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -114,6 +114,7 @@ def build_parser() -> argparse.ArgumentParser:
     chat.add_argument("--print-prompt", action="store_true", help="Print enriched prompts instead of executing agents")
     chat.add_argument("--memory-mode", choices=["background", "sync", "off"], default="background")
     chat.add_argument("--yolo", action="store_true", help="Bypass underlying agent permission prompts where supported")
+    chat.add_argument("--verbose", action="store_true", help="Show Cogito metadata and command confirmations")
     chat.set_defaults(func=cmd_chat)
 
     memory_model = sub.add_parser("memory-model", help="Show or change local model used for memory extraction")
@@ -289,6 +290,7 @@ def cmd_chat(conn, args: argparse.Namespace) -> int:
         execute=not args.print_prompt,
         memory_mode=args.memory_mode,
         yolo=args.yolo,
+        verbose=args.verbose,
     )
 
 

@@ -48,6 +48,19 @@ cogito[claude]> /memories
 cogito[claude]> /exit
 ```
 
+By default, chat hides Cogito metadata. Use verbose mode when you want command confirmations and session details:
+
+```sh
+cogito --verbose
+```
+
+Inside chat:
+
+```text
+/verbose on
+/verbose off
+```
+
 Skip underlying tool permission prompts where supported:
 
 ```sh
@@ -62,6 +75,8 @@ cogito[codex]> /persona add explainer claude sonnet Patient teacher who explains
 cogito[codex]> @architect review this design
 cogito[codex]> @explainer explain what architect suggested
 ```
+
+Slash commands and `@persona` names autocomplete with Tab in an interactive terminal.
 
 Default memory extractor:
 

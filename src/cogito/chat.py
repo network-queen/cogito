@@ -21,6 +21,7 @@ def run_chat(
     execute: bool = True,
     memory_mode: str = "background",
     yolo: bool = False,
+    verbose: bool = False,
     input_stream: TextIO = sys.stdin,
     output_stream: TextIO = sys.stdout,
 ) -> int:
@@ -31,13 +32,19 @@ def run_chat(
     )
     process_pending_memory_jobs(conn, limit=3)
     active_persona: dict | None = None
-    write(output_stream, f"Cogito chat. Session: {session['id']}. Tool: {session['active_agent']}.")
-    write(output_stream, "Commands: /tool, /persona, /memory-model, /memories, /session, /help, /exit")
+    if input_stream is sys.stdin:
+        setup_autocomplete(conn)
+    if verbose:
+        write(output_stream, f"Cogito chat. Session: {session['id']}. Tool: {session['active_agent']}.")
+        write(output_stream, "Commands: /tool, /persona, /memory-model, /memories, /session, /help, /exit")
 
     while True:
         try:
             if input_stream is sys.stdin:
-                line = input(f"cogito[{session['active_agent']}]> ")
+                prompt = ""
+                if sys.stdin.isatty():
+                    prompt = f"cogito[{session['active_agent']}]> " if verbose else "> "
+                line = input(prompt)
             else:
                 line = input_stream.readline()
                 if line == "":
@@ -57,9 +64,14 @@ def run_chat(
                 session=session,
                 active_persona=active_persona,
                 output_stream=output_stream,
+                verbose=verbose,
             )
             if not should_continue:
                 break
+            if text == "/verbose on":
+                verbose = True
+            elif text == "/verbose off":
+                verbose = False
             continue
         called_persona, routed_text = maybe_extract_persona_call(conn, text)
         turn_persona = called_persona or active_persona
@@ -83,7 +95,8 @@ def run_chat(
         if not execute:
             write(output_stream, result["prompt"])
 
-    write(output_stream, "Cogito session closed.")
+    if verbose:
+        write(output_stream, "Cogito session closed.")
     return 0
 
 
@@ -94,17 +107,25 @@ def handle_command(
     session: dict,
     active_persona: dict | None,
     output_stream: TextIO,
+    verbose: bool,
 ) -> tuple[bool, dict, dict | None]:
     parts = command.split()
     name = parts[0]
     if name in {"/exit", "/quit", "/q"}:
         return False, session, active_persona
     if name == "/help":
-        write(output_stream, "Commands: /tool AGENT, /persona add|use|list|show|delete|clear, /memory-model [MODEL], /memories, /session, /exit")
+        write(output_stream, "Commands: /tool AGENT, /persona add|use|list|show|delete|clear, /memory-model [MODEL], /memories, /session, /verbose on|off, /exit")
         write(output_stream, "Persona call: @name your request")
         return True, session, active_persona
+    if name == "/verbose":
+        if len(parts) != 2 or parts[1] not in {"on", "off"}:
+            write(output_stream, "Usage: /verbose on|off")
+            return True, session, active_persona
+        write(output_stream, f"Verbose: {parts[1]}")
+        return True, session, active_persona
     if name == "/session":
-        write(output_stream, format_session(session))
+        if verbose:
+            write(output_stream, format_session(session))
         return True, session, active_persona
     if name == "/memories":
         memories = list_memories(conn)[:10]
@@ -119,10 +140,18 @@ def handle_command(
             write(output_stream, "Usage: /tool codex|claude|opencode")
             return True, session, active_persona
         updated = set_session_agent(conn, session_id=session["id"], agent=parts[1])
-        write(output_stream, f"Tool: {updated['active_agent']}")
+        if verbose:
+            write(output_stream, f"Tool: {updated['active_agent']}")
         return True, updated, active_persona
     if name == "/persona":
-        return handle_persona_command(conn, parts, session=session, active_persona=active_persona, output_stream=output_stream)
+        return handle_persona_command(
+            conn,
+            parts,
+            session=session,
+            active_persona=active_persona,
+            output_stream=output_stream,
+            verbose=verbose,
+        )
     if name == "/memory-model":
         if len(parts) == 1:
             write(output_stream, f"Memory model: {get_memory_model(conn)}")
@@ -141,6 +170,7 @@ def handle_persona_command(
     session: dict,
     active_persona: dict | None,
     output_stream: TextIO,
+    verbose: bool,
 ) -> tuple[bool, dict, dict | None]:
     if len(parts) == 1 or parts[1] == "list":
         personas = list_personas(conn)
@@ -158,7 +188,8 @@ def handle_persona_command(
         name, agent, model = parts[2], parts[3], parts[4]
         description = " ".join(parts[5:])
         persona = add_persona(conn, name=name, agent=agent, model=None if model == "-" else model, description=description)
-        write(output_stream, f"Persona saved: {persona['name']}")
+        if verbose:
+            write(output_stream, f"Persona saved: {persona['name']}")
         return True, session, active_persona
     if action == "use":
         if len(parts) != 3:
@@ -166,7 +197,8 @@ def handle_persona_command(
             return True, session, active_persona
         persona = get_persona(conn, parts[2])
         updated = set_session_agent(conn, session_id=session["id"], agent=persona["agent"])
-        write(output_stream, f"Persona: {persona['name']} ({persona['agent']})")
+        if verbose:
+            write(output_stream, f"Persona: {persona['name']} ({persona['agent']})")
         return True, updated, persona
     if action == "show":
         if len(parts) != 3:
@@ -179,10 +211,12 @@ def handle_persona_command(
             write(output_stream, "Usage: /persona delete NAME")
             return True, session, active_persona
         delete_persona(conn, parts[2])
-        write(output_stream, f"Persona deleted: {parts[2]}")
+        if verbose:
+            write(output_stream, f"Persona deleted: {parts[2]}")
         return True, session, None if active_persona and active_persona["name"] == parts[2] else active_persona
     if action == "clear":
-        write(output_stream, "Persona cleared.")
+        if verbose:
+            write(output_stream, "Persona cleared.")
         return True, session, None
     write(output_stream, "Usage: /persona add|use|list|show|delete|clear")
     return True, session, active_persona
@@ -211,3 +245,50 @@ def format_persona(persona: dict) -> str:
 def write(stream: TextIO, text: str) -> None:
     stream.write(text + "\n")
     stream.flush()
+
+
+def setup_autocomplete(conn: sqlite3.Connection) -> None:
+    try:
+        import readline
+    except ImportError:
+        return
+
+    commands = [
+        "/exit",
+        "/help",
+        "/memories",
+        "/memory-model",
+        "/persona add",
+        "/persona clear",
+        "/persona delete",
+        "/persona list",
+        "/persona show",
+        "/persona use",
+        "/session",
+        "/tool claude",
+        "/tool codex",
+        "/tool opencode",
+        "/verbose off",
+        "/verbose on",
+    ]
+
+    def complete(text: str, state: int) -> str | None:
+        line = readline.get_line_buffer()
+        options = completion_options(conn, line, text, commands)
+        if state < len(options):
+            return options[state]
+        return None
+
+    readline.set_completer(complete)
+    readline.parse_and_bind("tab: complete")
+
+
+def completion_options(conn: sqlite3.Connection, line: str, text: str, commands: list[str]) -> list[str]:
+    if line.startswith("@"):
+        return [f"@{persona['name']} " for persona in list_personas(conn) if f"@{persona['name']}".startswith(text)]
+    if line.startswith("/persona use ") or line.startswith("/persona show ") or line.startswith("/persona delete "):
+        prefix = text
+        return [persona["name"] for persona in list_personas(conn) if persona["name"].startswith(prefix)]
+    if line.startswith("/"):
+        return [command for command in commands if command.startswith(line)]
+    return []

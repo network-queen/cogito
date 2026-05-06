@@ -21,10 +21,24 @@ class ChatTests(unittest.TestCase):
 
         output = output_stream.getvalue()
         memories = list_memories(conn)
-        self.assertIn("Tool: claude", output)
-        self.assertIn("Cogito session closed.", output)
+        self.assertNotIn("Tool: claude", output)
+        self.assertNotIn("Cogito session closed.", output)
         self.assertNotIn("[cogito] stored", output)
         self.assertTrue(any("prefer concise" in memory["text"] for memory in memories))
+
+    def test_verbose_chat_shows_metadata(self):
+        conn = connect(":memory:")
+        ensure_db(conn)
+        set_memory_model(conn, "heuristic")
+        input_stream = io.StringIO("/tool claude\n/exit\n")
+        output_stream = io.StringIO()
+
+        run_chat(conn, execute=False, verbose=True, input_stream=input_stream, output_stream=output_stream)
+
+        output = output_stream.getvalue()
+        self.assertIn("Cogito chat.", output)
+        self.assertIn("Tool: claude", output)
+        self.assertIn("Cogito session closed.", output)
 
 
 if __name__ == "__main__":
