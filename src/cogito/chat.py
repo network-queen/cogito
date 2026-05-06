@@ -5,6 +5,7 @@ import sqlite3
 import sys
 from typing import TextIO
 
+from .db import default_db_path
 from .memory import list_memories
 from .personas import add_persona, delete_persona, get_persona, list_personas, maybe_extract_persona_call
 from .settings import (
@@ -137,10 +138,13 @@ def run_chat(
             yolo=turn_yolo,
             model=turn_model,
             persona=turn_persona,
+            echo_output=False,
         )
         session = result["session"]
         if not execute:
             write(output_stream, result["prompt"])
+        elif not verbose and result["output"]:
+            write_agent_output(output_stream, result["output"])
 
     if verbose:
         write(output_stream, "Cogito session closed.")
@@ -308,6 +312,10 @@ def write(stream: TextIO, text: str) -> None:
     stream.flush()
 
 
+def write_agent_output(stream: TextIO, text: str) -> None:
+    write(stream, color(text.rstrip(), "green"))
+
+
 def is_known_command(text: str) -> bool:
     command_names = {command.split()[0] for command, _ in COMMAND_HELP}
     return text.split()[0] in command_names
@@ -343,9 +351,13 @@ def command_matches(prefix: str) -> list[tuple[str, str]]:
 
 def color(text: str, name: str) -> str:
     codes = {
+        "blue": "34",
         "cyan": "36",
+        "green": "32",
         "magenta": "35",
+        "red": "31",
         "gray": "90",
+        "yellow": "33",
     }
     code = codes.get(name)
     if not code:
@@ -359,6 +371,7 @@ def muted(text: str) -> str:
 
 def setup_autocomplete(conn: sqlite3.Connection) -> None:
     try:
+        import atexit
         import readline
     except ImportError:
         return
@@ -387,6 +400,14 @@ def setup_autocomplete(conn: sqlite3.Connection) -> None:
 
     readline.set_completer(complete)
     readline.parse_and_bind("tab: complete")
+    history = history_path()
+    try:
+        readline.read_history_file(history)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        return
+    atexit.register(readline.write_history_file, history)
 
 
 def read_interactive_line(conn: sqlite3.Connection, *, session: dict, verbose: bool, interactive: bool) -> str:
@@ -404,8 +425,9 @@ def read_interactive_line(conn: sqlite3.Connection, *, session: dict, verbose: b
 def read_with_prompt_toolkit(conn: sqlite3.Connection, *, session: dict, verbose: bool) -> str | None:
     try:
         from prompt_toolkit import PromptSession
-        from prompt_toolkit.formatted_text import HTML
         from prompt_toolkit.application.current import get_app
+        from prompt_toolkit.formatted_text import HTML
+        from prompt_toolkit.history import FileHistory
     except ImportError:
         return None
 
@@ -422,9 +444,16 @@ def read_with_prompt_toolkit(conn: sqlite3.Connection, *, session: dict, verbose
         completer=CogitoCompleter(conn),
         complete_while_typing=True,
         bottom_toolbar=bottom_toolbar,
+        history=FileHistory(history_path()),
         reserve_space_for_menu=8,
     )
     return prompt_session.prompt(prompt)
+
+
+def history_path() -> str:
+    path = default_db_path().parent / "history"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return str(path)
 
 
 try:

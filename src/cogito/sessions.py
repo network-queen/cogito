@@ -121,6 +121,7 @@ def ask_session(
     yolo: bool = False,
     model: str | None = None,
     persona: dict[str, Any] | None = None,
+    echo_output: bool = True,
 ) -> dict[str, Any]:
     session = get_session(conn, session_id)
     selected_agent = agent or session["active_agent"]
@@ -166,7 +167,7 @@ def ask_session(
         result = run_agent_capture(selected_agent, prompt, stream=stream, yolo=yolo, model=selected_model)
         exit_code = int(result["exit_code"])
         output = str(result["output"])
-        if output and not stream:
+        if output and not stream and echo_output:
             print(output)
         add_turn(
             conn,

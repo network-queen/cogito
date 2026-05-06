@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import io
 import unittest
+from unittest.mock import patch
 
-from cogito.chat import run_chat
+from cogito.chat import color, run_chat
 from cogito.db import connect
 from cogito.memory import ensure_db, list_memories
 from cogito.settings import set_embedding_model, set_memory_model
@@ -41,6 +42,27 @@ class ChatTests(unittest.TestCase):
         self.assertIn("Cogito chat.", output)
         self.assertIn("Tool: claude", output)
         self.assertIn("Cogito session closed.", output)
+
+    def test_quiet_chat_colors_agent_output(self):
+        conn = connect(":memory:")
+        ensure_db(conn)
+        input_stream = io.StringIO("hello\n/exit\n")
+        output_stream = io.StringIO()
+        fake_result = {
+            "session": {"id": "ses_test", "active_agent": "local"},
+            "prompt": "",
+            "output": "answer",
+            "agent": "local",
+            "context_pack": {},
+            "stored_memories": [],
+            "exit_code": 0,
+        }
+
+        with patch("cogito.chat.ask_session", return_value=fake_result) as ask:
+            run_chat(conn, input_stream=input_stream, output_stream=output_stream)
+
+        self.assertIn(color("answer", "green"), output_stream.getvalue())
+        self.assertFalse(ask.call_args.kwargs["echo_output"])
 
 
 if __name__ == "__main__":
