@@ -18,10 +18,27 @@ Cogito stores user memories from agent interactions, applies deterministic acces
 ## Quick Start
 
 ```sh
-python3 -m pip install -e .
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -e .
 cogito init
 cogito remember "User is building Cogito Ergo Sum, a local-first personal context kernel for AI agents." --type goal --sensitivity professional --contexts coding,professional
 cogito context-pack "software architecture" --lens coding --max-sensitivity professional
+```
+
+Run an agent with Cogito context prepended:
+
+```sh
+cogito ask codex "help me design the next Cogito feature"
+cogito ask claude "summarize what this project does"
+cogito ask opencode "inspect this repo"
+```
+
+Register Cogito as MCP:
+
+```sh
+cogito setup-agent codex
+cogito setup-agent claude
 ```
 
 Default DB path:
@@ -55,4 +72,3 @@ Exposed tools:
 ## Design Rule
 
 Facts stay private. Intents travel.
-

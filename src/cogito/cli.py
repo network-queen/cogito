@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 
+from .agent_bridge import get_prompt, run_agent, setup_agent
 from .db import connect, default_db_path
 from .extraction import extract_candidate_memories
 from .mcp_server import run_mcp_server
@@ -68,6 +69,24 @@ def build_parser() -> argparse.ArgumentParser:
     pack.add_argument("--limit", type=int, default=8)
     pack.add_argument("--json", action="store_true")
     pack.set_defaults(func=cmd_context_pack)
+
+    prompt = sub.add_parser("prompt", help="Print an agent prompt enriched with permitted Cogito context")
+    prompt.add_argument("query")
+    add_policy_args(prompt)
+    prompt.add_argument("--limit", type=int, default=8)
+    prompt.set_defaults(func=cmd_prompt)
+
+    ask = sub.add_parser("ask", help="Run an agent with Cogito context prepended to your prompt")
+    ask.add_argument("agent", choices=["codex", "codex-exec", "claude", "opencode"])
+    ask.add_argument("query")
+    add_policy_args(ask)
+    ask.add_argument("--limit", type=int, default=8)
+    ask.set_defaults(func=cmd_ask)
+
+    setup = sub.add_parser("setup-agent", help="Register Cogito as an MCP server for an agent")
+    setup.add_argument("agent", choices=["codex", "claude", "opencode"])
+    setup.add_argument("--cogito-bin", help="Path to cogito executable")
+    setup.set_defaults(func=cmd_setup_agent)
 
     explain = sub.add_parser("explain", help="Show provenance and receipts for memory")
     explain.add_argument("memory_id")
@@ -159,6 +178,25 @@ def cmd_context_pack(conn, args: argparse.Namespace) -> int:
     else:
         print(pack["context"])
     return 0
+
+
+def cmd_prompt(conn, args: argparse.Namespace) -> int:
+    print(get_prompt(conn, user_prompt=args.query, request=request_from_args(args), limit=args.limit))
+    return 0
+
+
+def cmd_ask(conn, args: argparse.Namespace) -> int:
+    prompt = get_prompt(conn, user_prompt=args.query, request=request_from_args(args), limit=args.limit)
+    return run_agent(args.agent, prompt)
+
+
+def cmd_setup_agent(conn, args: argparse.Namespace) -> int:
+    code, output = setup_agent(args.agent, args.cogito_bin)
+    if output:
+        print(output)
+    if code == 0:
+        print(f"Cogito MCP configured for {args.agent}.")
+    return code
 
 
 def cmd_explain(conn, args: argparse.Namespace) -> int:

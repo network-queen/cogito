@@ -2,12 +2,35 @@
 
 Cogito MVP integrates with agents through the CLI or the MCP stdio server. Use the CLI for scripts and manual checks; use `cogito mcp` when an agent client can launch a local MCP server and call tools.
 
+## Fast Path
+
+One-shot run with Cogito context injected into the prompt:
+
+```sh
+cogito ask codex "help me design the next Cogito feature"
+cogito ask claude "summarize this repo"
+cogito ask opencode "inspect this project"
+```
+
+Manual copy/paste prompt:
+
+```sh
+cogito prompt "help me design the next Cogito feature"
+```
+
 ## MCP
 
 Configure your agent tool runner to start Cogito as a stdio MCP server:
 
 ```sh
 cogito mcp
+```
+
+Or let Cogito register itself:
+
+```sh
+cogito setup-agent codex
+cogito setup-agent claude
 ```
 
 Conceptually, the agent sends tool calls to Cogito instead of reading the database directly:
