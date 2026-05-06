@@ -63,11 +63,10 @@ Inside `cogito chat`, normal turns go to the active model. Cogito infers the nee
 Interactive terminals use a split TUI:
 
 - Left pane: Cogito conversation and command input.
-- Right pane: recent persona calls, status, and live underlying adapter output.
+- Right pane: recent persona calls, status, and adapter output.
 - `@persona ...` calls are queued in the background, so the left pane remains usable.
-- External personas keep a persistent PTY process per persona, so later calls go to the same live Codex, Claude Code, or opencode session.
-- Calls to the same persona are queued and sent to that persona's PTY in order.
-- Use `/persona restart NAME` if a persona process gets stuck or you want a clean session.
+- Calls to the same persona are queued in order.
+- External persona calls run non-interactively and return plain text into both panes.
 
 By default, chat hides Cogito metadata. Use verbose mode when you want command confirmations and session details:
 
@@ -91,20 +90,20 @@ cogito chat --yolo
 Create personas:
 
 ```text
-> /persona add aristotle gpt-5.5
-> /persona add architect gpt-5.5 Senior pragmatic software architect.
-> /persona add explainer sonnet Patient teacher who explains tradeoffs.
-> /persona research architect Martin Fowler
-> /persona knowledge architect Prefers evolutionary architecture over large speculative rewrites.
+> /persona historical aristotle gpt-5.5
+> /persona create architect gpt-5.5 Senior pragmatic software architect.
+> /persona create explainer sonnet Patient teacher who explains tradeoffs.
+> /persona list
+> /persona delete explainer
 > @architect review this design
 > @explainer explain what architect suggested
 > @me decide based on what you know about me
 ```
 
-Persona descriptions stay in the persona table. Persona knowledge is separate RAG data in `persona_knowledge` and is injected only when that persona is called and the fact is relevant to the prompt. If you omit DESCRIPTION in `/persona add NAME MODEL`, Cogito automatically researches `NAME` from the internet and stores compact background chunks. `/persona research NAME SUBJECT` imports or refreshes public background manually; `/persona knowledge NAME TEXT` adds your own curated facts. `@me` is a built-in self-persona that uses permitted user memories from Cogito's normal access policy rather than a separate public-character RAG store.
+Persona descriptions stay in the persona table. Persona knowledge is separate RAG data in `persona_knowledge` and is injected only when that persona is called and the fact is relevant to the prompt. `/persona historical NAME MODEL [SUBJECT]` researches a public or historical personality from the internet and stores compact background chunks. `/persona create NAME MODEL DESCRIPTION` creates a persona directly from your description. `@me` is a built-in self-persona that uses permitted user memories from Cogito's normal access policy rather than a separate public-character RAG store.
 
 Slash commands and `@persona` names autocomplete with Tab in an interactive terminal.
-Typing `/` or `/per` and pressing Enter shows matching commands. `/help` shows full command reference. Prompts, personas, and metadata lists use terminal colors.
+Typing `/` or `/per` and pressing Enter shows matching commands. `/help` shows full command reference. Prompts, personas, and metadata lists use terminal colors. Up and Down traverse a shared history file at `~/.local/share/cogito/history`, so previous prompts are available after restarting Cogito.
 
 Default memory extractor:
 

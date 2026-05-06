@@ -12,11 +12,10 @@ from typing import TextIO
 from .agent_bridge import run_agent_capture, stop_agent_pty
 from .db import connect, default_db_path
 from .memory import list_memories
-from .persona_knowledge import add_persona_knowledge, list_persona_knowledge, research_persona_from_wikipedia
+from .persona_knowledge import research_persona_from_wikipedia
 from .personas import (
     add_persona_for_model,
     delete_persona,
-    get_persona,
     get_self_persona,
     list_personas,
     maybe_extract_persona_call,
@@ -44,15 +43,10 @@ from .tool_manager import all_models, model_catalog
 COMMAND_HELP = [
     ("/model [MODEL]", "show or change active model"),
     ("/models", "list detected models"),
-    ("/persona add NAME MODEL [DESCRIPTION]", "create persona; auto-researches when description is omitted"),
     ("/persona list", "list personas"),
-    ("/persona use NAME", "set active persona"),
-    ("/persona show NAME", "show persona"),
+    ("/persona create NAME MODEL DESCRIPTION", "create persona from description"),
+    ("/persona historical NAME MODEL [SUBJECT]", "create persona from public research"),
     ("/persona delete NAME", "delete persona"),
-    ("/persona restart NAME", "restart persona PTY"),
-    ("/persona knowledge NAME TEXT", "add persona RAG fact"),
-    ("/persona research NAME SUBJECT", "import public persona RAG"),
-    ("/persona clear", "clear active persona"),
     ("/chat-model [MODEL]", "show or change default local chat model"),
     ("/memory-model [MODEL]", "show or change memory extractor"),
     ("/embedding-model [MODEL]", "show or change relevance embeddings"),
@@ -66,18 +60,15 @@ COMMAND_HELP = [
 COMMAND_EXAMPLES = [
     "/chat-model qwen3:0.6b",
     "/model gpt-5.5",
-    "/persona add aristotle gpt-5.5",
-    "/persona add architect gpt-5.5 Senior pragmatic software architect.",
-    "/persona research architect Martin Fowler",
-    "/persona knowledge architect Prefers evolutionary architecture over large speculative rewrites.",
-    "/persona use architect",
+    "/persona historical aristotle gpt-5.5",
+    "/persona create architect gpt-5.5 Senior pragmatic software architect.",
     "@me decide based on what you know about me",
     "@architect review this design",
     "/memory-model qwen3:1.7b",
     "/embedding-model nomic-embed-text",
 ]
 
-PERSONA_ACTIONS = ["add", "list", "use", "show", "delete", "restart", "knowledge", "research", "clear"]
+PERSONA_ACTIONS = ["list", "create", "historical", "delete"]
 VERBOSE_OPTIONS = ["on", "off"]
 CHAT_MODEL_OPTIONS = ["qwen3:0.6b", "qwen3:1.7b", "llama3.2"]
 MEMORY_MODEL_OPTIONS = ["qwen3:0.6b", "qwen3:1.7b", "heuristic", "off"]
@@ -350,6 +341,7 @@ def run_split_tui(
         complete_while_typing=True,
         history=FileHistory(history_path()),
     )
+    input_area.buffer.load_history_if_not_yet_loaded()
     root = FloatContainer(
         content=VSplit(
             [
@@ -377,9 +369,10 @@ def run_split_tui(
             app_ref["app"].invalidate()
 
     def run_background_persona(persona: dict, prompt: str, routed_text: str) -> None:
+        model_label = persona.get("model") or (get_chat_model(conn) if persona["agent"] == "local" else "default")
         job = {
             "persona": persona["name"],
-            "model": persona.get("model") or "default",
+            "model": model_label,
             "status": "running",
             "lines": [f"started {time.strftime('%H:%M:%S')}", f"prompt: {routed_text}"],
         }
@@ -609,69 +602,37 @@ def handle_persona_command(
             write(output_stream, f"{color('@' + persona['name'], 'magenta')}: {model} {muted(persona['agent'])}")
         return True, session, active_persona
     action = parts[1]
-    if action == "add":
-        if len(parts) < 4:
-            write(output_stream, "Usage: /persona add NAME MODEL [DESCRIPTION]")
+    if action in {"create", "add"}:
+        if len(parts) < 5:
+            write(output_stream, "Usage: /persona create NAME MODEL DESCRIPTION")
             return True, session, active_persona
         name, model = parts[2], parts[3]
-        should_research = len(parts) == 4
-        description = " ".join(parts[4:]) if len(parts) > 4 else f"Public persona researched as {name}."
+        description = " ".join(parts[4:])
         persona = add_persona_for_model(conn, name=name, model=model, description=description)
-        imported = 0
-        if should_research:
-            try:
-                imported = len(research_persona_from_wikipedia(conn, persona_name=name, subject=name))
-            except Exception as exc:
-                write(output_stream, f"Persona saved, but research failed: {exc}")
-                return True, session, active_persona
         if verbose:
             write(output_stream, f"Persona saved: {persona['name']}")
-        elif should_research:
+        return True, session, active_persona
+    if action in {"historical", "history"}:
+        if len(parts) < 4:
+            write(output_stream, "Usage: /persona historical NAME MODEL [SUBJECT]")
+            return True, session, active_persona
+        name, model = parts[2], parts[3]
+        subject = " ".join(parts[4:]) if len(parts) > 4 else name
+        persona = add_persona_for_model(
+            conn,
+            name=name,
+            model=model,
+            description=f"Historical/public persona researched as {subject}.",
+        )
+        try:
+            imported = len(research_persona_from_wikipedia(conn, persona_name=name, subject=subject))
+        except Exception as exc:
+            write(output_stream, f"Persona saved, but research failed: {exc}")
+            return True, session, active_persona
+        if verbose:
+            write(output_stream, f"Persona saved: {persona['name']}")
+        else:
             write(output_stream, f"Persona saved with {imported} researched chunks.")
-        return True, session, active_persona
-    if action == "use":
-        if len(parts) != 3:
-            write(output_stream, "Usage: /persona use NAME")
-            return True, session, active_persona
-        persona = get_persona(conn, parts[2])
-        updated = set_session_model(conn, session_id=session["id"], model=persona.get("model"))
-        if verbose:
-            write(output_stream, f"Persona: {persona['name']} ({persona.get('model') or 'default'})")
-        return True, updated, persona
-    if action == "show":
-        if len(parts) != 3:
-            write(output_stream, "Usage: /persona show NAME")
-            return True, session, active_persona
-        persona = get_self_persona() if parts[2] == "me" else get_persona(conn, parts[2])
-        write(output_stream, format_persona(persona))
-        if not persona.get("virtual"):
-            knowledge = list_persona_knowledge(conn, persona_name=persona["name"])[:8]
-            if knowledge:
-                write(output_stream, color("Knowledge", "cyan"))
-                for item in knowledge:
-                    source = muted(item.get("source_url") or "")
-                    write(output_stream, f"- {item['text']} {source}".rstrip())
-        return True, session, active_persona
-    if action == "knowledge":
-        if len(parts) < 4:
-            write(output_stream, "Usage: /persona knowledge NAME TEXT")
-            return True, session, active_persona
-        if parts[2] == "me":
-            write(output_stream, "Use normal chat to store user facts; @me reads permitted user memory.")
-            return True, session, active_persona
-        item = add_persona_knowledge(conn, persona_name=parts[2], text=" ".join(parts[3:]))
-        if verbose:
-            write(output_stream, f"Persona knowledge saved: {item['id']}")
-        return True, session, active_persona
-    if action == "research":
-        if len(parts) < 4:
-            write(output_stream, "Usage: /persona research NAME SUBJECT")
-            return True, session, active_persona
-        if parts[2] == "me":
-            write(output_stream, "Research imports are for external personas. @me uses user memory.")
-            return True, session, active_persona
-        created = research_persona_from_wikipedia(conn, persona_name=parts[2], subject=" ".join(parts[3:]))
-        write(output_stream, f"Persona knowledge imported: {len(created)} chunks")
         return True, session, active_persona
     if action in {"delete", "del", "rm"}:
         if len(parts) != 3:
@@ -682,18 +643,7 @@ def handle_persona_command(
         if verbose:
             write(output_stream, f"Persona deleted: {parts[2]}")
         return True, session, None if active_persona and active_persona["name"] == parts[2] else active_persona
-    if action == "restart":
-        if len(parts) != 3:
-            write(output_stream, "Usage: /persona restart NAME")
-            return True, session, active_persona
-        restarted = stop_agent_pty(parts[2])
-        write(output_stream, f"Persona restarted: {parts[2]}" if restarted else f"Persona was not running: {parts[2]}")
-        return True, session, active_persona
-    if action == "clear":
-        if verbose:
-            write(output_stream, "Persona cleared.")
-        return True, session, None
-    write(output_stream, "Usage: /persona add|use|list|show|delete|restart|knowledge|research|clear")
+    write(output_stream, "Usage: /persona list|create|historical|delete")
     return True, session, active_persona
 
 
@@ -704,16 +654,6 @@ def format_session(session: dict) -> str:
         f"Model: {session.get('active_model') or 'local default'}\n"
         f"Lens: {session['lens']}\n"
         f"Max sensitivity: {session['max_sensitivity']}"
-    )
-
-
-def format_persona(persona: dict) -> str:
-    return (
-        f"Persona: {persona['name']}\n"
-        f"Model: {persona.get('model') or 'default'}\n"
-        f"Adapter: {persona['agent']}\n"
-        f"Yolo: {persona['yolo']}\n"
-        f"{persona['description']}"
     )
 
 
@@ -806,15 +746,10 @@ def setup_autocomplete(conn: sqlite3.Connection) -> None:
     commands = [item[0].split(" ")[0] for item in COMMAND_HELP] + [
         "/model",
         "/models",
-        "/persona add",
-        "/persona clear",
+        "/persona create",
         "/persona delete",
-        "/persona knowledge",
+        "/persona historical",
         "/persona list",
-        "/persona research",
-        "/persona restart",
-        "/persona show",
-        "/persona use",
         "/verbose off",
         "/verbose on",
     ]
@@ -921,20 +856,14 @@ def prompt_completions(conn: sqlite3.Connection, text: str) -> list[tuple[str, s
     if argument_completions:
         return argument_completions
     persona_name_prefixes = (
-        "/persona use ",
-        "/persona show ",
         "/persona delete ",
-        "/persona restart ",
-        "/persona knowledge ",
-        "/persona research ",
     )
     for prefix in persona_name_prefixes:
         if text.startswith(prefix):
             fragment = text.removeprefix(prefix)
-            personas = [get_self_persona(), *list_personas(conn)] if prefix == "/persona show " else list_personas(conn)
             return [
                 (persona["name"], persona["name"], persona["agent"], -len(fragment))
-                for persona in personas
+                for persona in list_personas(conn)
                 if persona["name"].startswith(fragment)
             ]
     if text.startswith("/"):
@@ -973,20 +902,17 @@ def persona_argument_completions(conn: sqlite3.Connection, text: str) -> list[tu
     if len(parts) < 2:
         return []
     action = parts[1]
-    if action in {"use", "show", "delete", "restart", "knowledge", "research"}:
-        names = [persona["name"] for persona in list_personas(conn)]
-        if action == "show":
-            names = ["me", *names]
-        return option_completions(names, fragment, "persona")
-    if action != "add":
+    if action == "delete":
+        return option_completions([persona["name"] for persona in list_personas(conn)], fragment, "persona")
+    if action not in {"create", "historical"}:
         return []
-    arg_index = persona_add_arg_index(text)
+    arg_index = persona_create_arg_index(text)
     if arg_index == 1:
         return option_completions(model_options(), fragment, "model; adapter inferred")
     return []
 
 
-def persona_add_arg_index(text: str) -> int:
+def persona_create_arg_index(text: str) -> int:
     parts = text.split()
     arg_count = max(0, len(parts) - 2)
     if text.endswith(" "):
@@ -1029,19 +955,30 @@ def get_instruction_hint(text: str) -> str:
 def get_persona_hint(text: str) -> str:
     parts = text.split()
     if text == "/persona" or text == "/persona " or len(parts) == 1:
-        return "next: add | list | use | show | delete | restart | knowledge | research | clear"
+        return "next: list | create | historical | delete"
     action = parts[1]
-    if action == "add":
-        return persona_add_hint(text)
-    if action in {"use", "show", "delete", "restart", "knowledge", "research"}:
+    if action == "create":
+        return persona_create_hint(text)
+    if action == "historical":
+        return persona_historical_hint(text)
+    if action == "delete":
         return "next: NAME"
-    if action in {"list", "clear"}:
+    if action == "list":
         return ""
-    return "next: add | list | use | show | delete | restart | knowledge | research | clear"
+    return "next: list | create | historical | delete"
 
 
-def persona_add_hint(text: str) -> str:
-    fields = ["NAME", "MODEL", "[DESCRIPTION]"]
+def persona_create_hint(text: str) -> str:
+    fields = ["NAME", "MODEL", "DESCRIPTION"]
+    return persona_field_hint(text, fields)
+
+
+def persona_historical_hint(text: str) -> str:
+    fields = ["NAME", "MODEL", "[SUBJECT]"]
+    return persona_field_hint(text, fields)
+
+
+def persona_field_hint(text: str, fields: list[str]) -> str:
     parts = text.split()
     completed = max(0, len(parts) - 2)
     if completed and not text.endswith(" "):
@@ -1081,11 +1018,10 @@ def readline_persona_options(conn: sqlite3.Connection, line: str, text: str) -> 
     if len(parts) == 1 or (len(parts) == 2 and not line.endswith(" ")):
         return [action for action in PERSONA_ACTIONS if action.startswith(text)]
     action = parts[1] if len(parts) > 1 else ""
-    if action in {"use", "show", "delete", "restart", "knowledge", "research"}:
-        personas = [get_self_persona(), *list_personas(conn)] if action == "show" else list_personas(conn)
-        return [persona["name"] for persona in personas if persona["name"].startswith(text)]
-    if action == "add":
-        arg_index = persona_add_arg_index(line)
+    if action == "delete":
+        return [persona["name"] for persona in list_personas(conn) if persona["name"].startswith(text)]
+    if action in {"create", "historical"}:
+        arg_index = persona_create_arg_index(line)
         if arg_index == 1:
             return [model for model in model_options() if model.startswith(text)]
     return []

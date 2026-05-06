@@ -25,12 +25,12 @@ class CompletionTests(unittest.TestCase):
         ensure_db(conn)
         add_persona(conn, name="architect", agent="codex", model="gpt-5.5", description="Architect")
 
-        commands = ["/persona use", "/verbose on"]
+        commands = ["/persona delete", "/verbose on"]
 
         self.assertIn("/verbose on", completion_options(conn, "/ver", "/ver", commands))
         self.assertIn("@architect ", completion_options(conn, "@ar", "@ar", commands))
-        self.assertIn("architect", completion_options(conn, "/persona use ar", "ar", commands))
-        self.assertIn("gpt-5.5", completion_options(conn, "/persona add boo gp", "gp", commands))
+        self.assertIn("architect", completion_options(conn, "/persona delete ar", "ar", commands))
+        self.assertIn("gpt-5.5", completion_options(conn, "/persona create boo gp", "gp", commands))
 
     def test_prompt_completions_include_metadata(self):
         conn = connect(":memory:")
@@ -57,16 +57,20 @@ class CompletionTests(unittest.TestCase):
         ensure_db(conn)
 
         self.assertIn(("gpt-5.5 ", "gpt-5.5", "model", 0), prompt_completions(conn, "/model "))
-        self.assertIn(("gpt-5.5 ", "gpt-5.5", "model; adapter inferred", -2), prompt_completions(conn, "/persona add boo gp"))
-        self.assertEqual(get_instruction_hint("/persona add"), "next: NAME MODEL [DESCRIPTION]")
-        self.assertEqual(get_instruction_hint("/persona add boo"), "next: MODEL [DESCRIPTION]")
-        self.assertEqual(get_instruction_hint("/persona add boo gpt-5.5"), "next: [DESCRIPTION]")
+        self.assertIn(("gpt-5.5 ", "gpt-5.5", "model; adapter inferred", -2), prompt_completions(conn, "/persona create boo gp"))
+        self.assertEqual(get_instruction_hint("/persona create"), "next: NAME MODEL DESCRIPTION")
+        self.assertEqual(get_instruction_hint("/persona create boo"), "next: MODEL DESCRIPTION")
+        self.assertEqual(get_instruction_hint("/persona create boo gpt-5.5"), "next: DESCRIPTION")
+        self.assertEqual(get_instruction_hint("/persona historical boo gpt-5.5"), "next: [SUBJECT]")
 
     def test_command_matches_filter_by_substring(self):
         matches = command_matches("/per")
 
         commands = [command for command, _ in matches]
-        self.assertIn("/persona add NAME MODEL [DESCRIPTION]", commands)
+        self.assertIn("/persona create NAME MODEL DESCRIPTION", commands)
+        self.assertIn("/persona historical NAME MODEL [SUBJECT]", commands)
+        self.assertNotIn("/persona research NAME SUBJECT", commands)
+        self.assertNotIn("/persona knowledge NAME TEXT", commands)
         self.assertNotIn("/tool local|codex|claude|opencode", commands)
 
     def test_command_match_output_prints_options(self):
@@ -74,7 +78,7 @@ class CompletionTests(unittest.TestCase):
 
         show_command_matches(output, "/per")
 
-        self.assertIn("/persona add", output.getvalue())
+        self.assertIn("/persona create", output.getvalue())
         self.assertNotIn("/verbose on|off", output.getvalue())
 
     def test_help_prints_full_reference(self):

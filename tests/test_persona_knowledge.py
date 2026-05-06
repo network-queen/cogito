@@ -101,7 +101,7 @@ class PersonaKnowledgeTests(unittest.TestCase):
         self.assertIn("software engineer in Zurich", result["prompt"])
         self.assertNotIn("Persona knowledge:", result["prompt"])
 
-    def test_persona_add_without_description_auto_researches(self):
+    def test_persona_historical_auto_researches(self):
         conn = connect(":memory:")
         ensure_db(conn)
         set_embedding_model(conn, "off")
@@ -112,7 +112,7 @@ class PersonaKnowledgeTests(unittest.TestCase):
             output = StringIO()
             handle_persona_command(
                 conn,
-                ["/persona", "add", "aristotle", "gpt-5.5"],
+                ["/persona", "historical", "aristotle", "gpt-5.5"],
                 session=session,
                 active_persona=None,
                 output_stream=output,
