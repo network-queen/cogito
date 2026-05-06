@@ -33,8 +33,20 @@ class CompletionTests(unittest.TestCase):
         ensure_db(conn)
         add_persona(conn, name="architect", agent="codex", model="gpt-5.5", description="Architect")
 
-        self.assertTrue(any(value.startswith("/persona") for value, _, _ in prompt_completions(conn, "/per")))
-        self.assertIn(("@architect ", "codex", -3), prompt_completions(conn, "@ar"))
+        self.assertTrue(any(value.startswith("/persona") for value, _, _, _ in prompt_completions(conn, "/per")))
+        self.assertIn(("@architect ", "@architect", "codex", -3), prompt_completions(conn, "@ar"))
+
+    def test_prompt_command_completion_inserts_command_not_usage(self):
+        conn = connect(":memory:")
+        ensure_db(conn)
+
+        completions = prompt_completions(conn, "/to")
+
+        self.assertIn(("/tool ", "/tool", "local|codex|claude|opencode - switch underlying tool", -3), completions)
+        self.assertNotIn(
+            ("/tool local|codex|claude|opencode", "/tool local|codex|claude|opencode", "switch underlying tool", -3),
+            completions,
+        )
 
     def test_command_matches_filter_by_substring(self):
         matches = command_matches("/per")

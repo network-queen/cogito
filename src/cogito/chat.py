@@ -426,18 +426,18 @@ class CogitoCompleter(PromptToolkitCompleter):
         except ImportError:
             return
         text = document.text_before_cursor
-        for value, meta, start_position in prompt_completions(self.conn, text):
-            yield Completion(value, start_position=start_position, display=value, display_meta=meta)
+        for value, display, meta, start_position in prompt_completions(self.conn, text):
+            yield Completion(value, start_position=start_position, display=display, display_meta=meta)
 
     async def get_completions_async(self, document, complete_event):
         for completion in self.get_completions(document, complete_event):
             yield completion
 
 
-def prompt_completions(conn: sqlite3.Connection, text: str) -> list[tuple[str, str, int]]:
+def prompt_completions(conn: sqlite3.Connection, text: str) -> list[tuple[str, str, str, int]]:
     if text.startswith("@"):
         return [
-            (f"@{persona['name']} ", persona["agent"], -len(text))
+            (f"@{persona['name']} ", f"@{persona['name']}", persona["agent"], -len(text))
             for persona in list_personas(conn)
             if f"@{persona['name']}".startswith(text)
         ]
@@ -445,16 +445,20 @@ def prompt_completions(conn: sqlite3.Connection, text: str) -> list[tuple[str, s
         if text.startswith(prefix):
             fragment = text.removeprefix(prefix)
             return [
-                (persona["name"], persona["agent"], -len(fragment))
+                (persona["name"], persona["name"], persona["agent"], -len(fragment))
                 for persona in list_personas(conn)
                 if persona["name"].startswith(fragment)
             ]
     if text.startswith("/"):
-        return [
-            (command, description, -len(text))
-            for command, description in command_matches(text)
-        ]
+        return [command_completion(command, description, text) for command, description in command_matches(text)]
     return []
+
+
+def command_completion(command: str, description: str, text: str) -> tuple[str, str, str, int]:
+    name, _, args = command.partition(" ")
+    value = name + (" " if args else "")
+    meta = f"{args} - {description}" if args else description
+    return value, name, meta, -len(text)
 
 
 def completion_options(conn: sqlite3.Connection, line: str, text: str, commands: list[str]) -> list[str]:
