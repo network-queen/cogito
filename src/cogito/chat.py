@@ -371,7 +371,7 @@ def run_split_tui(
             app_ref["app"].invalidate()
 
     def run_background_persona(persona: dict, prompt: str, routed_text: str) -> None:
-        model_label = persona.get("model") or (get_chat_model(conn) if persona["agent"] == "local" else "default")
+        model_label = persona.get("model") or "default"
         job = {
             "persona": persona["name"],
             "model": model_label,
@@ -388,6 +388,11 @@ def run_split_tui(
             if not db_path:
                 raise RuntimeError("background persona calls need a file-backed Cogito DB")
             bg_conn = connect(db_path)
+            if persona["agent"] == "local" and not persona.get("model"):
+                with lock:
+                    job["model"] = get_chat_model(bg_conn)
+                if app_ref["app"]:
+                    app_ref["app"].invalidate()
             if persona["agent"] == "local":
                 result = ask_session(
                     bg_conn,
