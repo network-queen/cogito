@@ -7,6 +7,7 @@ from unittest.mock import patch
 from cogito.chat import color, run_chat
 from cogito.db import connect
 from cogito.memory import ensure_db, list_memories
+from cogito.sessions import create_session
 from cogito.settings import set_embedding_model, set_memory_model
 
 
@@ -63,6 +64,17 @@ class ChatTests(unittest.TestCase):
 
         self.assertIn(color("answer", "green"), output_stream.getvalue())
         self.assertFalse(ask.call_args.kwargs["echo_output"])
+
+    def test_chat_resumes_latest_matching_session(self):
+        conn = connect(":memory:")
+        ensure_db(conn)
+        existing = create_session(conn, title="Cogito chat", agent="local")
+        input_stream = io.StringIO("/session\n/exit\n")
+        output_stream = io.StringIO()
+
+        run_chat(conn, execute=False, verbose=True, input_stream=input_stream, output_stream=output_stream)
+
+        self.assertIn(existing["id"], output_stream.getvalue())
 
 
 if __name__ == "__main__":

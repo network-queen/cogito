@@ -60,6 +60,36 @@ def list_sessions(conn: sqlite3.Connection, *, limit: int = 20) -> list[dict[str
     )
 
 
+def latest_session(
+    conn: sqlite3.Connection,
+    *,
+    title: str | None = None,
+    cwd: str | None = None,
+    lens: str | None = None,
+    max_sensitivity: str | None = None,
+) -> dict[str, Any] | None:
+    clauses = []
+    params: list[Any] = []
+    if title is not None:
+        clauses.append("title = ?")
+        params.append(title)
+    if cwd is not None:
+        clauses.append("cwd = ?")
+        params.append(cwd)
+    if lens is not None:
+        clauses.append("lens = ?")
+        params.append(lens)
+    if max_sensitivity is not None:
+        clauses.append("max_sensitivity = ?")
+        params.append(max_sensitivity)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    row = conn.execute(
+        f"SELECT * FROM sessions {where} ORDER BY updated_at DESC LIMIT 1",
+        tuple(params),
+    ).fetchone()
+    return row_to_dict(row) if row is not None else None
+
+
 def set_session_agent(conn: sqlite3.Connection, *, session_id: str, agent: str) -> dict[str, Any]:
     validate_agent(agent)
     conn.execute(
@@ -140,6 +170,7 @@ def ask_session(
     persona: dict[str, Any] | None = None,
     echo_output: bool = True,
     on_output: Callable[[str], None] | None = None,
+    update_active_agent: bool = True,
 ) -> dict[str, Any]:
     session = get_session(conn, session_id)
     selected_model = model or session.get("active_model")
@@ -147,7 +178,7 @@ def ask_session(
     validate_agent(selected_agent)
     if selected_agent == "local" and selected_model is None:
         selected_model = get_chat_model(conn)
-    if selected_agent != session["active_agent"]:
+    if update_active_agent and selected_agent != session["active_agent"]:
         session = set_session_agent(conn, session_id=session_id, agent=selected_agent)
     request = ContextRequest(
         lens=session["lens"],

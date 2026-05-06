@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import os
 import queue
 import re
 import sqlite3
@@ -34,6 +35,7 @@ from .sessions import (
     create_session,
     current_db_path,
     get_session,
+    latest_session,
     process_pending_memory_jobs,
     set_session_model,
 )
@@ -93,11 +95,20 @@ def run_chat(
     output_stream: TextIO = sys.stdout,
 ) -> int:
     interactive = input_stream is sys.stdin and sys.stdin.isatty()
-    session = (
-        get_session(conn, session_id)
-        if session_id
-        else create_session(conn, title=title, agent=agent, model=model, lens=lens, max_sensitivity=max_sensitivity)
-    )
+    if session_id:
+        session = get_session(conn, session_id)
+    else:
+        session = latest_session(
+            conn,
+            title=title,
+            cwd=os.getcwd(),
+            lens=lens,
+            max_sensitivity=max_sensitivity,
+        )
+        if session is None:
+            session = create_session(conn, title=title, agent=agent, model=model, lens=lens, max_sensitivity=max_sensitivity)
+        elif model:
+            session = set_session_model(conn, session_id=session["id"], model=model)
     process_pending_memory_jobs(conn, limit=3)
     active_persona: dict | None = None
     if interactive and execute:
@@ -407,6 +418,7 @@ def run_split_tui(
                     persona=persona,
                     echo_output=False,
                     on_output=lambda line: append_job(job, line),
+                    update_active_agent=False,
                 )
                 captured = clean_terminal_text(str(result.get("output") or "")).strip()
                 if not captured:
@@ -422,6 +434,7 @@ def run_split_tui(
                     execute=False,
                     memory_mode=memory_mode,
                     persona=persona,
+                    update_active_agent=False,
                 )
                 enriched_prompt = str(result["prompt"])
                 append_job(job, f"running {persona['agent']} in non-interactive mode")
