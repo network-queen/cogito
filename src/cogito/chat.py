@@ -13,6 +13,7 @@ from typing import TextIO
 from .agent_bridge import run_agent_capture, stop_agent_pty
 from .db import connect, default_db_path
 from .memory import list_memories
+from .osint import research_target
 from .persona_knowledge import research_persona_from_wikipedia
 from .personas import (
     add_persona_for_model,
@@ -49,6 +50,7 @@ COMMAND_HELP = [
     ("/persona create NAME MODEL DESCRIPTION", "create persona from description"),
     ("/persona historical NAME MODEL [SUBJECT]", "create persona from public research"),
     ("/persona delete NAME", "delete persona"),
+    ("/research @TARGET URL_OR_QUERY", "enrich @me or a persona from web research"),
     ("/chat-model [MODEL]", "show or change default local chat model"),
     ("/memory-model [MODEL]", "show or change memory extractor"),
     ("/embedding-model [MODEL]", "show or change relevance embeddings"),
@@ -64,6 +66,8 @@ COMMAND_EXAMPLES = [
     "/model gpt-5.5",
     "/persona historical aristotle gpt-5.5",
     "/persona create architect gpt-5.5 Senior pragmatic software architect.",
+    "/research @me https://www.linkedin.com/in/ruslan-klymenko-927a6b67/",
+    "/research @architect Martin Fowler evolutionary architecture",
     "@me decide based on what you know about me",
     "@architect review this design",
     "/memory-model qwen3:1.7b",
@@ -256,6 +260,14 @@ def handle_command(
             output_stream=output_stream,
             verbose=verbose,
         )
+    if name == "/research":
+        return handle_research_command(
+            conn,
+            parts,
+            session=session,
+            active_persona=active_persona,
+            output_stream=output_stream,
+        )
     if name == "/memory-model":
         if len(parts) == 1:
             write(output_stream, f"Memory model: {get_memory_model(conn)}")
@@ -271,6 +283,26 @@ def handle_command(
         write(output_stream, f"Embedding model: {model}")
         return True, session, active_persona
     write(output_stream, f"Unknown command: {name}. Use /help.")
+    return True, session, active_persona
+
+
+def handle_research_command(
+    conn: sqlite3.Connection,
+    parts: list[str],
+    *,
+    session: dict,
+    active_persona: dict | None,
+    output_stream: TextIO,
+) -> tuple[bool, dict, dict | None]:
+    if len(parts) < 3 or not parts[1].startswith("@"):
+        write(output_stream, "Usage: /research @TARGET URL_OR_QUERY")
+        return True, session, active_persona
+    try:
+        created = research_target(conn, target=parts[1], source=" ".join(parts[2:]))
+    except Exception as exc:
+        write(output_stream, f"Research failed: {exc}")
+        return True, session, active_persona
+    write(output_stream, f"Research saved: {len(created)} chunks")
     return True, session, active_persona
 
 
@@ -929,8 +961,19 @@ def command_argument_completions(conn: sqlite3.Connection, text: str) -> list[tu
         return option_completions(MEMORY_MODEL_OPTIONS, last_fragment(text), "memory extractor")
     if text.startswith("/embedding-model "):
         return option_completions(EMBEDDING_MODEL_OPTIONS, last_fragment(text), "embedding model")
+    if text == "/research " or text.startswith("/research "):
+        return research_argument_completions(conn, text)
     if text == "/persona " or text.startswith("/persona "):
         return persona_argument_completions(conn, text)
+    return []
+
+
+def research_argument_completions(conn: sqlite3.Connection, text: str) -> list[tuple[str, str, str, int]]:
+    parts = text.split()
+    fragment = last_fragment(text)
+    if len(parts) == 1 or (len(parts) == 2 and not text.endswith(" ")):
+        targets = ["@me", *[f"@{persona['name']}" for persona in list_personas(conn)]]
+        return option_completions(targets, fragment, "research target")
     return []
 
 
@@ -987,9 +1030,20 @@ def get_instruction_hint(text: str) -> str:
         return "next: MODEL, for example qwen3:0.6b, heuristic, or off"
     if text.startswith("/embedding-model"):
         return "next: MODEL, for example nomic-embed-text or off"
+    if text.startswith("/research"):
+        return research_hint(text)
     if text.startswith("/persona"):
         return get_persona_hint(text)
     return ""
+
+
+def research_hint(text: str) -> str:
+    parts = text.split()
+    if text == "/research" or text == "/research " or len(parts) == 1:
+        return "next: @TARGET URL_OR_QUERY"
+    if len(parts) == 2 and not text.endswith(" "):
+        return "next: @TARGET URL_OR_QUERY"
+    return "next: URL_OR_QUERY"
 
 
 def get_persona_hint(text: str) -> str:
@@ -1048,6 +1102,11 @@ def completion_options(conn: sqlite3.Connection, line: str, text: str, commands:
         return [model for model in MEMORY_MODEL_OPTIONS if model.startswith(text)]
     if line.startswith("/embedding-model "):
         return [model for model in EMBEDDING_MODEL_OPTIONS if model.startswith(text)]
+    if line.startswith("/research "):
+        parts = line.split()
+        if len(parts) == 1 or (len(parts) == 2 and not line.endswith(" ")):
+            targets = ["@me", *[f"@{persona['name']}" for persona in list_personas(conn)]]
+            return [target for target in targets if target.startswith(text)]
     if line.startswith("/"):
         return [command for command in commands if command.startswith(line)]
     return []

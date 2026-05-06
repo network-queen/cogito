@@ -76,6 +76,18 @@ class ChatTests(unittest.TestCase):
 
         self.assertIn(existing["id"], output_stream.getvalue())
 
+    def test_research_command_routes_to_osint(self):
+        conn = connect(":memory:")
+        ensure_db(conn)
+        input_stream = io.StringIO("/research @me https://example.com/me\n/exit\n")
+        output_stream = io.StringIO()
+
+        with patch("cogito.chat.research_target", return_value=[{"id": "mem_test"}]) as research:
+            run_chat(conn, execute=False, input_stream=input_stream, output_stream=output_stream)
+
+        research.assert_called_once_with(conn, target="@me", source="https://example.com/me")
+        self.assertIn("Research saved: 1 chunks", output_stream.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()
