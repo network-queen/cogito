@@ -41,9 +41,19 @@ Inside `cogito chat`:
 cogito[codex]> review this repo
 cogito[codex]> /tool claude
 cogito[claude]> explain the tradeoffs
+cogito[claude]> /memory-model
+cogito[claude]> /memory-model qwen3:1.7b
 cogito[claude]> /memories
 cogito[claude]> /exit
 ```
+
+Default memory extractor:
+
+```text
+ollama:qwen3:0.6b
+```
+
+Cogito auto-starts Ollama and pulls the model when possible. If Ollama is unavailable, it falls back to local heuristics.
 
 Keep one Cogito session while switching tools:
 

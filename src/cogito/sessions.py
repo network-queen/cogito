@@ -6,10 +6,11 @@ from typing import Any
 
 from .agent_bridge import build_enriched_prompt, run_agent_capture
 from .db import row_to_dict, rows_to_dicts
-from .extraction import extract_candidate_memories
 from .ids import new_id
+from .local_extractor import extract_with_model
 from .memory import add_event, add_memory, context_pack
 from .policy import ContextRequest
+from .settings import get_memory_model
 
 
 SUPPORTED_AGENTS = ["codex", "codex-exec", "claude", "opencode"]
@@ -132,7 +133,11 @@ def ask_session(
         content=user_prompt,
         metadata={"agent": selected_agent},
     )
-    stored_memories = extract_and_store_memories(conn, event_id=event["id"], text=user_prompt) if auto_memory else []
+    stored_memories = (
+        extract_and_store_memories(conn, event_id=event["id"], text=user_prompt)
+        if auto_memory
+        else []
+    )
     add_turn(conn, session_id=session_id, agent=selected_agent, role="user", content=user_prompt)
     pack = context_pack(conn, query=user_prompt, request=request, limit=limit)
     prompt = build_session_prompt(session=session, turns=get_turns(conn, session_id=session_id), context=pack["context"], user_prompt=user_prompt)
@@ -200,7 +205,8 @@ def validate_agent(agent: str) -> None:
 
 def extract_and_store_memories(conn: sqlite3.Connection, *, event_id: str, text: str) -> list[dict[str, Any]]:
     memories = []
-    for candidate in extract_candidate_memories(text):
+    candidates, source = extract_with_model(text, get_memory_model(conn))
+    for candidate in candidates:
         if memory_text_exists(conn, candidate["text"]):
             continue
         memories.append(
@@ -214,6 +220,9 @@ def extract_and_store_memories(conn: sqlite3.Connection, *, event_id: str, text:
                 source_event_id=event_id,
             )
         )
+    if memories:
+        for memory in memories:
+            memory["extractor"] = source
     return memories
 
 

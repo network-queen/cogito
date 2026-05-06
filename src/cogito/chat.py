@@ -5,6 +5,7 @@ import sys
 from typing import TextIO
 
 from .memory import list_memories
+from .settings import get_memory_model, set_memory_model
 from .sessions import ask_session, create_session, get_session, set_session_agent
 
 
@@ -26,7 +27,7 @@ def run_chat(
         else create_session(conn, title=title, agent=agent, lens=lens, max_sensitivity=max_sensitivity)
     )
     write(output_stream, f"Cogito chat. Session: {session['id']}. Tool: {session['active_agent']}.")
-    write(output_stream, "Commands: /tool codex|claude|opencode, /memories, /session, /help, /exit")
+    write(output_stream, "Commands: /tool codex|claude|opencode, /memory-model [model], /memories, /session, /help, /exit")
 
     while True:
         try:
@@ -61,7 +62,8 @@ def run_chat(
         if not execute:
             write(output_stream, result["prompt"])
         if result["stored_memories"]:
-            write(output_stream, f"[cogito] stored {len(result['stored_memories'])} memory item(s)")
+            extractor = result["stored_memories"][0].get("extractor", "unknown")
+            write(output_stream, f"[cogito] stored {len(result['stored_memories'])} memory item(s) via {extractor}")
 
     write(output_stream, "Cogito session closed.")
     return 0
@@ -79,7 +81,7 @@ def handle_command(
     if name in {"/exit", "/quit", "/q"}:
         return False, session
     if name == "/help":
-        write(output_stream, "Commands: /tool AGENT, /memories, /session, /exit")
+        write(output_stream, "Commands: /tool AGENT, /memory-model [MODEL], /memories, /session, /exit")
         return True, session
     if name == "/session":
         write(output_stream, format_session(session))
@@ -99,6 +101,13 @@ def handle_command(
         updated = set_session_agent(conn, session_id=session["id"], agent=parts[1])
         write(output_stream, f"Tool: {updated['active_agent']}")
         return True, updated
+    if name == "/memory-model":
+        if len(parts) == 1:
+            write(output_stream, f"Memory model: {get_memory_model(conn)}")
+            return True, session
+        model = set_memory_model(conn, " ".join(parts[1:]))
+        write(output_stream, f"Memory model: {model}")
+        return True, session
     write(output_stream, f"Unknown command: {name}. Use /help.")
     return True, session
 

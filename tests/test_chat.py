@@ -6,12 +6,14 @@ import unittest
 from cogito.chat import run_chat
 from cogito.db import connect
 from cogito.memory import ensure_db, list_memories
+from cogito.settings import set_memory_model
 
 
 class ChatTests(unittest.TestCase):
     def test_chat_switches_tools_and_stores_memory_without_execution(self):
         conn = connect(":memory:")
         ensure_db(conn)
+        set_memory_model(conn, "heuristic")
         input_stream = io.StringIO("I prefer concise engineering answers\n/tool claude\nexplain tradeoffs\n/exit\n")
         output_stream = io.StringIO()
 
@@ -26,4 +28,3 @@ class ChatTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
