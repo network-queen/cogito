@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   cwd TEXT NOT NULL,
   summary TEXT NOT NULL DEFAULT '',
   active_agent TEXT NOT NULL DEFAULT 'local',
+  active_model TEXT,
   lens TEXT NOT NULL DEFAULT 'coding',
   max_sensitivity TEXT NOT NULL DEFAULT 'professional',
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -139,6 +140,7 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
     ensure_column(conn, "memories", "embedding", "TEXT")
     ensure_column(conn, "memories", "embedding_model", "TEXT")
+    ensure_column(conn, "sessions", "active_model", "TEXT")
     conn.executescript(INDEXES)
     conn.commit()
 

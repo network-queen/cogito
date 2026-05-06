@@ -13,6 +13,7 @@ from .memory import add_event, add_memory, context_pack
 from .embeddings import ensure_memory_embedding
 from .policy import ContextRequest
 from .settings import get_chat_model, get_memory_model
+from .tool_manager import infer_agent_for_model
 
 
 SUPPORTED_AGENTS = ["local", "codex", "codex-exec", "claude", "opencode"]
@@ -27,15 +28,18 @@ def create_session(
     lens: str = "coding",
     max_sensitivity: str = "professional",
     cwd: str | None = None,
+    model: str | None = None,
 ) -> dict[str, Any]:
+    if model:
+        agent = infer_agent_for_model(model)
     validate_agent(agent)
     session_id = new_id("ses")
     conn.execute(
         """
-        INSERT INTO sessions (id, title, cwd, active_agent, lens, max_sensitivity)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO sessions (id, title, cwd, active_agent, active_model, lens, max_sensitivity)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (session_id, title, cwd or os.getcwd(), agent, lens, max_sensitivity),
+        (session_id, title, cwd or os.getcwd(), agent, model, lens, max_sensitivity),
     )
     conn.commit()
     return get_session(conn, session_id)
@@ -59,6 +63,17 @@ def set_session_agent(conn: sqlite3.Connection, *, session_id: str, agent: str) 
     conn.execute(
         "UPDATE sessions SET active_agent = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
         (agent, session_id),
+    )
+    conn.commit()
+    return get_session(conn, session_id)
+
+
+def set_session_model(conn: sqlite3.Connection, *, session_id: str, model: str | None) -> dict[str, Any]:
+    agent = infer_agent_for_model(model)
+    validate_agent(agent)
+    conn.execute(
+        "UPDATE sessions SET active_agent = ?, active_model = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (agent, model, session_id),
     )
     conn.commit()
     return get_session(conn, session_id)
@@ -124,9 +139,9 @@ def ask_session(
     echo_output: bool = True,
 ) -> dict[str, Any]:
     session = get_session(conn, session_id)
-    selected_agent = agent or session["active_agent"]
+    selected_model = model or session.get("active_model")
+    selected_agent = agent or (infer_agent_for_model(selected_model) if selected_model else session["active_agent"])
     validate_agent(selected_agent)
-    selected_model = model
     if selected_agent == "local" and selected_model is None:
         selected_model = get_chat_model(conn)
     if selected_agent != session["active_agent"]:

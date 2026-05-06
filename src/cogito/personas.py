@@ -5,6 +5,7 @@ from typing import Any
 
 from .db import row_to_dict, rows_to_dicts
 from .ids import new_id
+from .tool_manager import infer_agent_for_model
 
 
 SUPPORTED_PERSONA_AGENTS = {"local", "codex", "codex-exec", "claude", "opencode"}
@@ -38,6 +39,24 @@ def add_persona(
     )
     conn.commit()
     return get_persona(conn, name)
+
+
+def add_persona_for_model(
+    conn: sqlite3.Connection,
+    *,
+    name: str,
+    model: str,
+    description: str,
+    yolo: bool = False,
+) -> dict[str, Any]:
+    return add_persona(
+        conn,
+        name=name,
+        agent=infer_agent_for_model(None if model == "-" else model),
+        model=None if model == "-" else model,
+        description=description,
+        yolo=yolo,
+    )
 
 
 def get_persona(conn: sqlite3.Connection, name: str) -> dict[str, Any]:

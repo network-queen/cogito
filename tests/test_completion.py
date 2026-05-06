@@ -28,7 +28,7 @@ class CompletionTests(unittest.TestCase):
         self.assertIn("/verbose on", completion_options(conn, "/ver", "/ver", commands))
         self.assertIn("@architect ", completion_options(conn, "@ar", "@ar", commands))
         self.assertIn("architect", completion_options(conn, "/persona use ar", "ar", commands))
-        self.assertIn("codex", completion_options(conn, "/persona add boo co", "co", commands))
+        self.assertIn("gpt-5.5", completion_options(conn, "/persona add boo gp", "gp", commands))
 
     def test_prompt_completions_include_metadata(self):
         conn = connect(":memory:")
@@ -42,11 +42,11 @@ class CompletionTests(unittest.TestCase):
         conn = connect(":memory:")
         ensure_db(conn)
 
-        completions = prompt_completions(conn, "/to")
+        completions = prompt_completions(conn, "/mo")
 
-        self.assertIn(("/tool ", "/tool", "local|codex|claude|opencode - switch underlying tool", -3), completions)
+        self.assertIn(("/model ", "/model", "[MODEL] - show or change active model", -3), completions)
         self.assertNotIn(
-            ("/tool local|codex|claude|opencode", "/tool local|codex|claude|opencode", "switch underlying tool", -3),
+            ("/model gpt-5.5", "/model gpt-5.5", "show or change active model", -3),
             completions,
         )
 
@@ -54,18 +54,17 @@ class CompletionTests(unittest.TestCase):
         conn = connect(":memory:")
         ensure_db(conn)
 
-        self.assertIn(("codex ", "codex", "agent", 0), prompt_completions(conn, "/tool "))
-        self.assertIn(("codex ", "codex", "agent", -2), prompt_completions(conn, "/persona add boo co"))
-        self.assertIn(("gpt-5.5 ", "gpt-5.5", "model; use - for default", 0), prompt_completions(conn, "/persona add boo codex "))
-        self.assertEqual(get_instruction_hint("/persona add"), "next: NAME AGENT MODEL DESCRIPTION")
-        self.assertEqual(get_instruction_hint("/persona add boo"), "next: AGENT MODEL DESCRIPTION")
-        self.assertEqual(get_instruction_hint("/persona add boo codex"), "next: MODEL DESCRIPTION")
+        self.assertIn(("gpt-5.5 ", "gpt-5.5", "model", 0), prompt_completions(conn, "/model "))
+        self.assertIn(("gpt-5.5 ", "gpt-5.5", "model; adapter inferred", -2), prompt_completions(conn, "/persona add boo gp"))
+        self.assertEqual(get_instruction_hint("/persona add"), "next: NAME MODEL DESCRIPTION")
+        self.assertEqual(get_instruction_hint("/persona add boo"), "next: MODEL DESCRIPTION")
+        self.assertEqual(get_instruction_hint("/persona add boo gpt-5.5"), "next: DESCRIPTION")
 
     def test_command_matches_filter_by_substring(self):
         matches = command_matches("/per")
 
         commands = [command for command, _ in matches]
-        self.assertIn("/persona add NAME AGENT MODEL DESCRIPTION", commands)
+        self.assertIn("/persona add NAME MODEL DESCRIPTION", commands)
         self.assertNotIn("/tool local|codex|claude|opencode", commands)
 
     def test_command_match_output_prints_options(self):

@@ -11,19 +11,19 @@ from cogito.settings import set_embedding_model, set_memory_model
 
 
 class ChatTests(unittest.TestCase):
-    def test_chat_switches_tools_and_stores_memory_without_execution(self):
+    def test_chat_switches_models_and_stores_memory_without_execution(self):
         conn = connect(":memory:")
         ensure_db(conn)
         set_memory_model(conn, "heuristic")
         set_embedding_model(conn, "off")
-        input_stream = io.StringIO("I prefer concise engineering answers\n/tool claude\nexplain tradeoffs\n/exit\n")
+        input_stream = io.StringIO("I prefer concise engineering answers\n/model sonnet\nexplain tradeoffs\n/exit\n")
         output_stream = io.StringIO()
 
         run_chat(conn, execute=False, memory_mode="sync", input_stream=input_stream, output_stream=output_stream)
 
         output = output_stream.getvalue()
         memories = list_memories(conn)
-        self.assertNotIn("Tool: claude", output)
+        self.assertNotIn("Model: sonnet", output)
         self.assertNotIn("Cogito session closed.", output)
         self.assertNotIn("[cogito] stored", output)
         self.assertTrue(any("prefer concise" in memory["text"] for memory in memories))
@@ -33,14 +33,14 @@ class ChatTests(unittest.TestCase):
         ensure_db(conn)
         set_memory_model(conn, "heuristic")
         set_embedding_model(conn, "off")
-        input_stream = io.StringIO("/tool claude\n/exit\n")
+        input_stream = io.StringIO("/model sonnet\n/exit\n")
         output_stream = io.StringIO()
 
         run_chat(conn, execute=False, verbose=True, input_stream=input_stream, output_stream=output_stream)
 
         output = output_stream.getvalue()
         self.assertIn("Cogito chat.", output)
-        self.assertIn("Tool: claude", output)
+        self.assertIn("Model: sonnet", output)
         self.assertIn("Cogito session closed.", output)
 
     def test_quiet_chat_colors_agent_output(self):

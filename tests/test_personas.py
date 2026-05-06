@@ -4,17 +4,16 @@ import unittest
 
 from cogito.db import connect
 from cogito.memory import ensure_db
-from cogito.personas import add_persona, get_persona, maybe_extract_persona_call
+from cogito.personas import add_persona_for_model, get_persona, maybe_extract_persona_call
 
 
 class PersonaTests(unittest.TestCase):
     def test_add_and_route_persona_call(self):
         conn = connect(":memory:")
         ensure_db(conn)
-        add_persona(
+        add_persona_for_model(
             conn,
             name="architect",
-            agent="codex",
             model="gpt-5.5",
             description="Senior architect.",
         )
@@ -29,4 +28,3 @@ class PersonaTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

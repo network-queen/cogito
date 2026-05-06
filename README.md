@@ -44,13 +44,15 @@ cogito ask claude "summarize what this project does"
 cogito ask opencode "inspect this repo"
 ```
 
-Inside `cogito chat`, normal turns go to the local Ollama model. Use `@persona` or `/tool` when you want Codex, Claude Code, or opencode:
+Inside `cogito chat`, normal turns go to the active model. Cogito infers the needed adapter from the model:
 
 ```text
 > think through this idea with me
 > @architect review this repo
-> /tool claude
+> /model sonnet
 > explain the tradeoffs
+> /models
+> /install gpt-5.5
 > /chat-model
 > /chat-model qwen3:1.7b
 > /memory-model
@@ -81,8 +83,8 @@ cogito chat --yolo
 Create personas:
 
 ```text
-> /persona add architect codex gpt-5.5 Senior pragmatic software architect.
-> /persona add explainer claude sonnet Patient teacher who explains tradeoffs.
+> /persona add architect gpt-5.5 Senior pragmatic software architect.
+> /persona add explainer sonnet Patient teacher who explains tradeoffs.
 > @architect review this design
 > @explainer explain what architect suggested
 ```
@@ -109,7 +111,7 @@ ollama:nomic-embed-text
 ```
 
 Cogito auto-starts Ollama and pulls these models when possible. If Ollama is unavailable, memory extraction and retrieval fall back to local heuristics.
-During chat, memory extraction runs silently in the background through a durable SQLite job queue. Plain user prompts are routed to the local chat model by default without waiting for the memory model. `@persona` routes a single turn to that persona's configured tool/model.
+During chat, memory extraction runs silently in the background through a durable SQLite job queue. Plain user prompts are routed to the active model without waiting for the memory model. `@persona` routes a single turn to that persona's configured model.
 
 Docker Compose runs the local model service:
 
@@ -119,10 +121,10 @@ docker compose up -d ollama
 
 Cogito itself runs on the host so it can launch your installed Codex, Claude Code, and opencode CLIs with their existing auth.
 
-Keep one Cogito session while switching tools:
+Keep one Cogito session while switching models:
 
 ```sh
-cogito session new --title "Cogito build" --agent codex
+cogito session new --title "Cogito build" --model gpt-5.5
 cogito session ask <session-id> --agent local "think locally"
 cogito session ask <session-id> --agent codex "review the current architecture"
 cogito session ask <session-id> --agent claude "explain the tradeoffs"

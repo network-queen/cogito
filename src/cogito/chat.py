@@ -7,7 +7,7 @@ from typing import TextIO
 
 from .db import default_db_path
 from .memory import list_memories
-from .personas import add_persona, delete_persona, get_persona, list_personas, maybe_extract_persona_call
+from .personas import add_persona_for_model, delete_persona, get_persona, list_personas, maybe_extract_persona_call
 from .settings import (
     get_chat_model,
     get_embedding_model,
@@ -16,12 +16,16 @@ from .settings import (
     set_embedding_model,
     set_memory_model,
 )
-from .sessions import ask_session, create_session, get_session, process_pending_memory_jobs, set_session_agent
+from .sessions import ask_session, create_session, get_session, process_pending_memory_jobs, set_session_model
+from .tool_manager import all_models, install_for_model, model_catalog, update_for_model
 
 
 COMMAND_HELP = [
-    ("/tool local|codex|claude|opencode", "switch underlying tool"),
-    ("/persona add NAME AGENT MODEL DESCRIPTION", "create persona"),
+    ("/model [MODEL]", "show or change active model"),
+    ("/models", "list detected models"),
+    ("/install MODEL", "install the adapter needed for model"),
+    ("/update MODEL", "update the adapter needed for model"),
+    ("/persona add NAME MODEL DESCRIPTION", "create persona"),
     ("/persona list", "list personas"),
     ("/persona use NAME", "set active persona"),
     ("/persona show NAME", "show persona"),
@@ -39,28 +43,28 @@ COMMAND_HELP = [
 
 COMMAND_EXAMPLES = [
     "/chat-model qwen3:0.6b",
-    "/tool local",
-    "/tool claude",
-    "/persona add architect codex gpt-5.5 Senior pragmatic software architect.",
+    "/model gpt-5.5",
+    "/install gpt-5.5",
+    "/persona add architect gpt-5.5 Senior pragmatic software architect.",
     "/persona use architect",
     "@architect review this design",
     "/memory-model qwen3:1.7b",
     "/embedding-model nomic-embed-text",
 ]
 
-AGENT_OPTIONS = ["local", "codex", "codex-exec", "claude", "opencode"]
 PERSONA_ACTIONS = ["add", "list", "use", "show", "delete", "clear"]
 VERBOSE_OPTIONS = ["on", "off"]
 CHAT_MODEL_OPTIONS = ["qwen3:0.6b", "qwen3:1.7b", "llama3.2"]
 MEMORY_MODEL_OPTIONS = ["qwen3:0.6b", "qwen3:1.7b", "heuristic", "off"]
 EMBEDDING_MODEL_OPTIONS = ["nomic-embed-text", "mxbai-embed-large", "off"]
-PERSONA_MODEL_OPTIONS = ["-", "gpt-5.5", "gpt-5.4", "sonnet", "opus", *CHAT_MODEL_OPTIONS]
+FALLBACK_MODEL_OPTIONS = ["-", "gpt-5.5", "gpt-5.4", "sonnet", "opus", *CHAT_MODEL_OPTIONS]
 
 
 def run_chat(
     conn: sqlite3.Connection,
     *,
     agent: str = "local",
+    model: str | None = None,
     session_id: str | None = None,
     title: str = "Cogito chat",
     lens: str = "coding",
@@ -76,15 +80,15 @@ def run_chat(
     session = (
         get_session(conn, session_id)
         if session_id
-        else create_session(conn, title=title, agent=agent, lens=lens, max_sensitivity=max_sensitivity)
+        else create_session(conn, title=title, agent=agent, model=model, lens=lens, max_sensitivity=max_sensitivity)
     )
     process_pending_memory_jobs(conn, limit=3)
     active_persona: dict | None = None
     if input_stream is sys.stdin:
         setup_autocomplete(conn)
     if verbose:
-        write(output_stream, f"Cogito chat. Session: {session['id']}. Tool: {session['active_agent']}.")
-        write(output_stream, "Commands: /tool, /persona, /chat-model, /memory-model, /memories, /session, /help, /exit")
+        write(output_stream, f"Cogito chat. Session: {session['id']}. Model: {session.get('active_model') or 'local default'}.")
+        write(output_stream, "Commands: /model, /models, /persona, /chat-model, /memory-model, /memories, /session, /help, /exit")
 
     while True:
         try:
@@ -186,14 +190,31 @@ def handle_command(
                 meta = f"[{memory['type']}, {memory['sensitivity']}]"
                 write(output_stream, f"{color('-', 'cyan')} {memory['text']} {muted(meta)}")
         return True, session, active_persona
-    if name == "/tool":
-        if len(parts) != 2:
-            write(output_stream, "Usage: /tool local|codex|claude|opencode")
+    if name == "/model":
+        if len(parts) == 1:
+            write(output_stream, f"Model: {session.get('active_model') or get_chat_model(conn)}")
             return True, session, active_persona
-        updated = set_session_agent(conn, session_id=session["id"], agent=parts[1])
+        model = " ".join(parts[1:])
+        updated = set_session_model(conn, session_id=session["id"], model=None if model == "-" else model)
         if verbose:
-            write(output_stream, f"Tool: {updated['active_agent']}")
+            write(output_stream, f"Model: {updated.get('active_model') or get_chat_model(conn)}")
         return True, updated, active_persona
+    if name == "/models":
+        for agent, models in model_catalog().items():
+            if models:
+                write(output_stream, f"{color(agent, 'cyan')}: {', '.join(models[:12])}")
+        return True, session, active_persona
+    if name in {"/install", "/update"}:
+        if len(parts) != 2:
+            write(output_stream, f"Usage: {name} MODEL")
+            return True, session, active_persona
+        result = install_for_model(parts[1]) if name == "/install" else update_for_model(parts[1])
+        write(output_stream, color("$ " + " ".join(result.command), "cyan"))
+        if result.output:
+            write(output_stream, result.output)
+        if result.code != 0:
+            write(output_stream, color(f"Command exited with {result.code}", "red"))
+        return True, session, active_persona
     if name == "/chat-model":
         if len(parts) == 1:
             write(output_stream, f"Chat model: {get_chat_model(conn)}")
@@ -243,16 +264,16 @@ def handle_persona_command(
             write(output_stream, muted("No personas."))
         for persona in personas:
             model = persona.get("model") or "default"
-            write(output_stream, f"{color('@' + persona['name'], 'magenta')}: {persona['agent']} {muted(model)}")
+            write(output_stream, f"{color('@' + persona['name'], 'magenta')}: {model} {muted(persona['agent'])}")
         return True, session, active_persona
     action = parts[1]
     if action == "add":
-        if len(parts) < 6:
-            write(output_stream, "Usage: /persona add NAME AGENT MODEL DESCRIPTION")
+        if len(parts) < 5:
+            write(output_stream, "Usage: /persona add NAME MODEL DESCRIPTION")
             return True, session, active_persona
-        name, agent, model = parts[2], parts[3], parts[4]
-        description = " ".join(parts[5:])
-        persona = add_persona(conn, name=name, agent=agent, model=None if model == "-" else model, description=description)
+        name, model = parts[2], parts[3]
+        description = " ".join(parts[4:])
+        persona = add_persona_for_model(conn, name=name, model=model, description=description)
         if verbose:
             write(output_stream, f"Persona saved: {persona['name']}")
         return True, session, active_persona
@@ -261,9 +282,9 @@ def handle_persona_command(
             write(output_stream, "Usage: /persona use NAME")
             return True, session, active_persona
         persona = get_persona(conn, parts[2])
-        updated = set_session_agent(conn, session_id=session["id"], agent=persona["agent"])
+        updated = set_session_model(conn, session_id=session["id"], model=persona.get("model"))
         if verbose:
-            write(output_stream, f"Persona: {persona['name']} ({persona['agent']})")
+            write(output_stream, f"Persona: {persona['name']} ({persona.get('model') or 'default'})")
         return True, updated, persona
     if action == "show":
         if len(parts) != 3:
@@ -291,7 +312,7 @@ def format_session(session: dict) -> str:
     return (
         f"Session: {session['id']}\n"
         f"Title: {session['title']}\n"
-        f"Tool: {session['active_agent']}\n"
+        f"Model: {session.get('active_model') or 'local default'}\n"
         f"Lens: {session['lens']}\n"
         f"Max sensitivity: {session['max_sensitivity']}"
     )
@@ -300,8 +321,8 @@ def format_session(session: dict) -> str:
 def format_persona(persona: dict) -> str:
     return (
         f"Persona: {persona['name']}\n"
-        f"Tool: {persona['agent']}\n"
         f"Model: {persona.get('model') or 'default'}\n"
+        f"Adapter: {persona['agent']}\n"
         f"Yolo: {persona['yolo']}\n"
         f"{persona['description']}"
     )
@@ -377,16 +398,16 @@ def setup_autocomplete(conn: sqlite3.Connection) -> None:
         return
 
     commands = [item[0].split(" ")[0] for item in COMMAND_HELP] + [
+        "/model",
+        "/models",
+        "/install",
+        "/update",
         "/persona add",
         "/persona clear",
         "/persona delete",
         "/persona list",
         "/persona show",
         "/persona use",
-        "/tool claude",
-        "/tool codex",
-        "/tool local",
-        "/tool opencode",
         "/verbose off",
         "/verbose on",
     ]
@@ -512,8 +533,10 @@ def command_completion(command: str, description: str, text: str) -> tuple[str, 
 
 
 def command_argument_completions(conn: sqlite3.Connection, text: str) -> list[tuple[str, str, str, int]]:
-    if text.startswith("/tool "):
-        return option_completions(AGENT_OPTIONS, last_fragment(text), "agent")
+    if text.startswith("/model "):
+        return option_completions(model_options(), last_fragment(text), "model")
+    if text.startswith("/install ") or text.startswith("/update "):
+        return option_completions(model_options(), last_fragment(text), "model")
     if text.startswith("/verbose "):
         return option_completions(VERBOSE_OPTIONS, last_fragment(text), "mode")
     if text.startswith("/chat-model "):
@@ -541,9 +564,7 @@ def persona_argument_completions(conn: sqlite3.Connection, text: str) -> list[tu
         return []
     arg_index = persona_add_arg_index(text)
     if arg_index == 1:
-        return option_completions(AGENT_OPTIONS, fragment, "agent")
-    if arg_index == 2:
-        return option_completions(PERSONA_MODEL_OPTIONS, fragment, "model; use - for default")
+        return option_completions(model_options(), fragment, "model; adapter inferred")
     return []
 
 
@@ -572,8 +593,10 @@ def last_fragment(text: str) -> str:
 def get_instruction_hint(text: str) -> str:
     if not text.startswith("/"):
         return ""
-    if text.startswith("/tool"):
-        return "next: local | codex | codex-exec | claude | opencode"
+    if text.startswith("/model"):
+        return "next: MODEL"
+    if text.startswith("/install") or text.startswith("/update"):
+        return "next: MODEL"
     if text.startswith("/verbose"):
         return "next: on | off"
     if text.startswith("/chat-model"):
@@ -602,7 +625,7 @@ def get_persona_hint(text: str) -> str:
 
 
 def persona_add_hint(text: str) -> str:
-    fields = ["NAME", "AGENT", "MODEL", "DESCRIPTION"]
+    fields = ["NAME", "MODEL", "DESCRIPTION"]
     parts = text.split()
     completed = max(0, len(parts) - 2)
     if completed and not text.endswith(" "):
@@ -618,8 +641,10 @@ def completion_options(conn: sqlite3.Connection, line: str, text: str, commands:
         return [f"@{persona['name']} " for persona in list_personas(conn) if f"@{persona['name']}".startswith(text)]
     if line.startswith("/persona "):
         return readline_persona_options(conn, line, text)
-    if line.startswith("/tool "):
-        return [agent for agent in AGENT_OPTIONS if agent.startswith(text)]
+    if line.startswith("/model "):
+        return [model for model in model_options() if model.startswith(text)]
+    if line.startswith("/install ") or line.startswith("/update "):
+        return [model for model in model_options() if model.startswith(text)]
     if line.startswith("/verbose "):
         return [option for option in VERBOSE_OPTIONS if option.startswith(text)]
     if line.startswith("/chat-model "):
@@ -643,7 +668,9 @@ def readline_persona_options(conn: sqlite3.Connection, line: str, text: str) -> 
     if action == "add":
         arg_index = persona_add_arg_index(line)
         if arg_index == 1:
-            return [agent for agent in AGENT_OPTIONS if agent.startswith(text)]
-        if arg_index == 2:
-            return [model for model in PERSONA_MODEL_OPTIONS if model.startswith(text)]
+            return [model for model in model_options() if model.startswith(text)]
     return []
+
+
+def model_options() -> list[str]:
+    return sorted(set(FALLBACK_MODEL_OPTIONS + all_models()))

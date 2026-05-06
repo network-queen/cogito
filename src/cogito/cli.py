@@ -28,7 +28,8 @@ from .settings import (
     set_embedding_model,
     set_memory_model,
 )
-from .sessions import SUPPORTED_AGENTS, ask_session, create_session, list_sessions, set_session_agent
+from .sessions import SUPPORTED_AGENTS, ask_session, create_session, list_sessions, set_session_agent, set_session_model
+from .tool_manager import install_for_model, model_catalog, update_for_model
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -114,6 +115,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     chat = sub.add_parser("chat", help="Enter a Cogito terminal chat that routes turns to selected agent")
     chat.add_argument("--agent", default="local", choices=SUPPORTED_AGENTS)
+    chat.add_argument("--model", help="Active model. Cogito infers the adapter from this.")
     chat.add_argument("--session", help="Existing session id")
     chat.add_argument("--title", default="Cogito chat")
     chat.add_argument("--lens", default="coding")
@@ -123,6 +125,17 @@ def build_parser() -> argparse.ArgumentParser:
     chat.add_argument("--yolo", action="store_true", help="Bypass underlying agent permission prompts where supported")
     chat.add_argument("--verbose", action="store_true", help="Show Cogito metadata and command confirmations")
     chat.set_defaults(func=cmd_chat)
+
+    models = sub.add_parser("models", help="List detected models from installed adapters")
+    models.set_defaults(func=cmd_models)
+
+    install = sub.add_parser("install", help="Install the adapter needed for MODEL")
+    install.add_argument("model")
+    install.set_defaults(func=cmd_install)
+
+    update = sub.add_parser("update", help="Update the adapter needed for MODEL")
+    update.add_argument("model")
+    update.set_defaults(func=cmd_update)
 
     chat_model = sub.add_parser("chat-model", help="Show or change local model used for default chat")
     chat_model.add_argument("model", nargs="?", help="Example: qwen3:0.6b or ollama:llama3.2")
@@ -141,6 +154,7 @@ def build_parser() -> argparse.ArgumentParser:
     session_new = session_sub.add_parser("new", help="Create a session")
     session_new.add_argument("--title", default="Untitled Cogito session")
     session_new.add_argument("--agent", default="local", choices=SUPPORTED_AGENTS)
+    session_new.add_argument("--model", help="Active model. Cogito infers the adapter from this.")
     session_new.add_argument("--lens", default="coding")
     session_new.add_argument("--max-sensitivity", default="professional")
     session_new.set_defaults(func=cmd_session_new)
@@ -151,6 +165,10 @@ def build_parser() -> argparse.ArgumentParser:
     session_tool.add_argument("session_id")
     session_tool.add_argument("agent", choices=SUPPORTED_AGENTS)
     session_tool.set_defaults(func=cmd_session_tool)
+    session_model = session_sub.add_parser("model", help="Change session active model")
+    session_model.add_argument("session_id")
+    session_model.add_argument("model")
+    session_model.set_defaults(func=cmd_session_model)
     session_ask = session_sub.add_parser("ask", help="Ask within existing session")
     session_ask.add_argument("session_id")
     session_ask.add_argument("query")
@@ -298,6 +316,7 @@ def cmd_chat(conn, args: argparse.Namespace) -> int:
     return run_chat(
         conn,
         agent=args.agent,
+        model=args.model,
         session_id=args.session,
         title=args.title,
         lens=args.lens,
@@ -307,6 +326,26 @@ def cmd_chat(conn, args: argparse.Namespace) -> int:
         yolo=args.yolo,
         verbose=args.verbose,
     )
+
+
+def cmd_models(conn, args: argparse.Namespace) -> int:
+    print(json.dumps(model_catalog(), indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_install(conn, args: argparse.Namespace) -> int:
+    return print_command_result(install_for_model(args.model))
+
+
+def cmd_update(conn, args: argparse.Namespace) -> int:
+    return print_command_result(update_for_model(args.model))
+
+
+def print_command_result(result) -> int:
+    print("$ " + " ".join(result.command))
+    if result.output:
+        print(result.output)
+    return int(result.code)
 
 
 def cmd_chat_model(conn, args: argparse.Namespace) -> int:
@@ -340,6 +379,7 @@ def cmd_session_new(conn, args: argparse.Namespace) -> int:
                 conn,
                 title=args.title,
                 agent=args.agent,
+                model=args.model,
                 lens=args.lens,
                 max_sensitivity=args.max_sensitivity,
             ),
@@ -357,6 +397,11 @@ def cmd_session_list(conn, args: argparse.Namespace) -> int:
 
 def cmd_session_tool(conn, args: argparse.Namespace) -> int:
     print(json.dumps(set_session_agent(conn, session_id=args.session_id, agent=args.agent), indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_session_model(conn, args: argparse.Namespace) -> int:
+    print(json.dumps(set_session_model(conn, session_id=args.session_id, model=args.model), indent=2, sort_keys=True))
     return 0
 
 
