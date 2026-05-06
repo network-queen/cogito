@@ -323,7 +323,7 @@ def run_split_tui(
                 status = job["status"]
                 color_name = "ansigreen" if status == "done" else "ansiyellow" if status == "running" else "ansired"
                 header = f"<{color_name}>@{html.escape(job['persona'])} {html.escape(status)}</{color_name}> <ansigray>{html.escape(job['model'])}</ansigray>"
-                body = html.escape("\n".join(job["lines"][-80:]) or "waiting...")
+                body = escape_terminal_html("\n".join(job["lines"][-80:]) or "waiting...")
                 chunks.append(header + "\n" + body)
             separator = "\n\n<ansigray>" + ("-" * 36) + "</ansigray>\n\n"
             return HTML(separator.join(chunks))
@@ -364,7 +364,7 @@ def run_split_tui(
 
     def append_job(job: dict, text: str) -> None:
         with lock:
-            job["lines"].append(text.rstrip("\n"))
+            job["lines"].append(clean_terminal_text(text.rstrip("\n")))
         if app_ref["app"]:
             app_ref["app"].invalidate()
 
@@ -456,6 +456,8 @@ def run_split_tui(
 
     def submit() -> None:
         text = input_area.text.strip()
+        if text:
+            input_area.buffer.append_to_history()
         input_area.text = ""
         if not text:
             return
@@ -527,6 +529,18 @@ def run_split_tui(
             buffer.complete_previous()
         else:
             buffer.start_completion(select_first=True)
+
+    @kb.add("up")
+    def _history_previous(event):
+        buffer = input_area.buffer
+        buffer.load_history_if_not_yet_loaded()
+        buffer.history_backward()
+
+    @kb.add("down")
+    def _history_next(event):
+        buffer = input_area.buffer
+        buffer.load_history_if_not_yet_loaded()
+        buffer.history_forward()
 
     @kb.add("enter")
     def _submit(event):
@@ -738,6 +752,19 @@ def muted(text: str) -> str:
 
 def strip_ansi(text: str) -> str:
     return re.sub(r"\033\[[0-9;]*m", "", text)
+
+
+def clean_terminal_text(text: str) -> str:
+    text = strip_ansi(text)
+    return "".join(
+        char
+        for char in text
+        if char in "\n\r\t" or ord(char) >= 32
+    )
+
+
+def escape_terminal_html(text: str) -> str:
+    return html.escape(clean_terminal_text(text))
 
 
 def setup_autocomplete(conn: sqlite3.Connection) -> None:

@@ -5,8 +5,10 @@ import unittest
 
 from cogito.chat import (
     CogitoCompleter,
+    clean_terminal_text,
     command_matches,
     completion_options,
+    escape_terminal_html,
     get_instruction_hint,
     prompt_completions,
     show_command_matches,
@@ -88,6 +90,17 @@ class CompletionTests(unittest.TestCase):
         ensure_db(conn)
 
         self.assertTrue(hasattr(CogitoCompleter(conn), "get_completions_async"))
+
+    def test_terminal_html_escaping_removes_invalid_control_chars(self):
+        raw = "\x1b[31mAristotle\x1b[0m\x00 <virtue>\x08\nnext\tline"
+
+        cleaned = clean_terminal_text(raw)
+        escaped = escape_terminal_html(raw)
+
+        self.assertNotIn("\x00", cleaned)
+        self.assertNotIn("\x08", cleaned)
+        self.assertIn("Aristotle", cleaned)
+        self.assertIn("&lt;virtue&gt;", escaped)
 
 
 if __name__ == "__main__":
