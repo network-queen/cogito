@@ -66,6 +66,21 @@ def get_persona(conn: sqlite3.Connection, name: str) -> dict[str, Any]:
     return normalize_persona(row_to_dict(row))
 
 
+def get_self_persona() -> dict[str, Any]:
+    return {
+        "id": "__self__",
+        "name": "me",
+        "agent": "local",
+        "model": None,
+        "description": (
+            "Act as the user's self-persona. Use only the permitted Cogito user context "
+            "provided for this turn; do not invent biographical facts."
+        ),
+        "yolo": False,
+        "virtual": True,
+    }
+
+
 def list_personas(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = conn.execute("SELECT * FROM personas ORDER BY name ASC").fetchall()
     return [normalize_persona(item) for item in rows_to_dicts(rows)]
@@ -84,6 +99,8 @@ def maybe_extract_persona_call(conn: sqlite3.Connection, text: str) -> tuple[dic
     name = head.removeprefix("@")
     if not name:
         return None, text
+    if name == "me":
+        return get_self_persona(), rest.strip() or text
     try:
         return get_persona(conn, name), rest.strip() or text
     except KeyError:

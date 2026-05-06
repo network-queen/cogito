@@ -101,6 +101,21 @@ CREATE TABLE IF NOT EXISTS personas (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS persona_knowledge (
+  id TEXT PRIMARY KEY,
+  persona_id TEXT NOT NULL,
+  text TEXT NOT NULL,
+  type TEXT NOT NULL DEFAULT 'fact',
+  source_url TEXT,
+  confidence REAL NOT NULL DEFAULT 0.8,
+  embedding TEXT,
+  embedding_model TEXT,
+  state TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(persona_id) REFERENCES personas(id)
+);
+
 """
 
 INDEXES = """
@@ -112,6 +127,9 @@ CREATE INDEX IF NOT EXISTS idx_events_source ON events(source);
 CREATE INDEX IF NOT EXISTS idx_session_turns_session ON session_turns(session_id);
 CREATE INDEX IF NOT EXISTS idx_memory_jobs_state ON memory_jobs(state);
 CREATE INDEX IF NOT EXISTS idx_personas_name ON personas(name);
+CREATE INDEX IF NOT EXISTS idx_persona_knowledge_persona ON persona_knowledge(persona_id);
+CREATE INDEX IF NOT EXISTS idx_persona_knowledge_state ON persona_knowledge(state);
+CREATE INDEX IF NOT EXISTS idx_persona_knowledge_embedding_model ON persona_knowledge(embedding_model);
 """
 
 
@@ -141,6 +159,8 @@ def init_db(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "memories", "embedding", "TEXT")
     ensure_column(conn, "memories", "embedding_model", "TEXT")
     ensure_column(conn, "sessions", "active_model", "TEXT")
+    ensure_column(conn, "persona_knowledge", "embedding", "TEXT")
+    ensure_column(conn, "persona_knowledge", "embedding_model", "TEXT")
     conn.executescript(INDEXES)
     conn.commit()
 

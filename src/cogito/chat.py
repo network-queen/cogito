@@ -12,7 +12,15 @@ from typing import TextIO
 from .agent_bridge import run_agent_pty, stop_agent_pty
 from .db import connect, default_db_path
 from .memory import list_memories
-from .personas import add_persona_for_model, delete_persona, get_persona, list_personas, maybe_extract_persona_call
+from .persona_knowledge import add_persona_knowledge, list_persona_knowledge, research_persona_from_wikipedia
+from .personas import (
+    add_persona_for_model,
+    delete_persona,
+    get_persona,
+    get_self_persona,
+    list_personas,
+    maybe_extract_persona_call,
+)
 from .settings import (
     get_chat_model,
     get_embedding_model,
@@ -34,6 +42,8 @@ COMMAND_HELP = [
     ("/persona show NAME", "show persona"),
     ("/persona delete NAME", "delete persona"),
     ("/persona restart NAME", "restart persona PTY"),
+    ("/persona knowledge NAME TEXT", "add persona RAG fact"),
+    ("/persona research NAME SUBJECT", "import public persona RAG"),
     ("/persona clear", "clear active persona"),
     ("/chat-model [MODEL]", "show or change default local chat model"),
     ("/memory-model [MODEL]", "show or change memory extractor"),
@@ -49,13 +59,16 @@ COMMAND_EXAMPLES = [
     "/chat-model qwen3:0.6b",
     "/model gpt-5.5",
     "/persona add architect gpt-5.5 Senior pragmatic software architect.",
+    "/persona research architect Martin Fowler",
+    "/persona knowledge architect Prefers evolutionary architecture over large speculative rewrites.",
     "/persona use architect",
+    "@me decide based on what you know about me",
     "@architect review this design",
     "/memory-model qwen3:1.7b",
     "/embedding-model nomic-embed-text",
 ]
 
-PERSONA_ACTIONS = ["add", "list", "use", "show", "delete", "restart", "clear"]
+PERSONA_ACTIONS = ["add", "list", "use", "show", "delete", "restart", "knowledge", "research", "clear"]
 VERBOSE_OPTIONS = ["on", "off"]
 CHAT_MODEL_OPTIONS = ["qwen3:0.6b", "qwen3:1.7b", "llama3.2"]
 MEMORY_MODEL_OPTIONS = ["qwen3:0.6b", "qwen3:1.7b", "heuristic", "off"]
@@ -575,7 +588,36 @@ def handle_persona_command(
         if len(parts) != 3:
             write(output_stream, "Usage: /persona show NAME")
             return True, session, active_persona
-        write(output_stream, format_persona(get_persona(conn, parts[2])))
+        persona = get_self_persona() if parts[2] == "me" else get_persona(conn, parts[2])
+        write(output_stream, format_persona(persona))
+        if not persona.get("virtual"):
+            knowledge = list_persona_knowledge(conn, persona_name=persona["name"])[:8]
+            if knowledge:
+                write(output_stream, color("Knowledge", "cyan"))
+                for item in knowledge:
+                    source = muted(item.get("source_url") or "")
+                    write(output_stream, f"- {item['text']} {source}".rstrip())
+        return True, session, active_persona
+    if action == "knowledge":
+        if len(parts) < 4:
+            write(output_stream, "Usage: /persona knowledge NAME TEXT")
+            return True, session, active_persona
+        if parts[2] == "me":
+            write(output_stream, "Use normal chat to store user facts; @me reads permitted user memory.")
+            return True, session, active_persona
+        item = add_persona_knowledge(conn, persona_name=parts[2], text=" ".join(parts[3:]))
+        if verbose:
+            write(output_stream, f"Persona knowledge saved: {item['id']}")
+        return True, session, active_persona
+    if action == "research":
+        if len(parts) < 4:
+            write(output_stream, "Usage: /persona research NAME SUBJECT")
+            return True, session, active_persona
+        if parts[2] == "me":
+            write(output_stream, "Research imports are for external personas. @me uses user memory.")
+            return True, session, active_persona
+        created = research_persona_from_wikipedia(conn, persona_name=parts[2], subject=" ".join(parts[3:]))
+        write(output_stream, f"Persona knowledge imported: {len(created)} chunks")
         return True, session, active_persona
     if action in {"delete", "del", "rm"}:
         if len(parts) != 3:
@@ -597,7 +639,7 @@ def handle_persona_command(
         if verbose:
             write(output_stream, "Persona cleared.")
         return True, session, None
-    write(output_stream, "Usage: /persona add|use|list|show|delete|clear")
+    write(output_stream, "Usage: /persona add|use|list|show|delete|restart|knowledge|research|clear")
     return True, session, active_persona
 
 
@@ -700,7 +742,9 @@ def setup_autocomplete(conn: sqlite3.Connection) -> None:
         "/persona add",
         "/persona clear",
         "/persona delete",
+        "/persona knowledge",
         "/persona list",
+        "/persona research",
         "/persona restart",
         "/persona show",
         "/persona use",
@@ -800,20 +844,30 @@ class CogitoCompleter(PromptToolkitCompleter):
 
 def prompt_completions(conn: sqlite3.Connection, text: str) -> list[tuple[str, str, str, int]]:
     if text.startswith("@"):
+        personas = [get_self_persona(), *list_personas(conn)]
         return [
             (f"@{persona['name']} ", f"@{persona['name']}", persona["agent"], -len(text))
-            for persona in list_personas(conn)
+            for persona in personas
             if f"@{persona['name']}".startswith(text)
         ]
     argument_completions = command_argument_completions(conn, text)
     if argument_completions:
         return argument_completions
-    for prefix in ("/persona use ", "/persona show ", "/persona delete ", "/persona restart "):
+    persona_name_prefixes = (
+        "/persona use ",
+        "/persona show ",
+        "/persona delete ",
+        "/persona restart ",
+        "/persona knowledge ",
+        "/persona research ",
+    )
+    for prefix in persona_name_prefixes:
         if text.startswith(prefix):
             fragment = text.removeprefix(prefix)
+            personas = [get_self_persona(), *list_personas(conn)] if prefix == "/persona show " else list_personas(conn)
             return [
                 (persona["name"], persona["name"], persona["agent"], -len(fragment))
-                for persona in list_personas(conn)
+                for persona in personas
                 if persona["name"].startswith(fragment)
             ]
     if text.startswith("/"):
@@ -852,8 +906,11 @@ def persona_argument_completions(conn: sqlite3.Connection, text: str) -> list[tu
     if len(parts) < 2:
         return []
     action = parts[1]
-    if action in {"use", "show", "delete", "restart"}:
-        return option_completions([persona["name"] for persona in list_personas(conn)], fragment, "persona")
+    if action in {"use", "show", "delete", "restart", "knowledge", "research"}:
+        names = [persona["name"] for persona in list_personas(conn)]
+        if action == "show":
+            names = ["me", *names]
+        return option_completions(names, fragment, "persona")
     if action != "add":
         return []
     arg_index = persona_add_arg_index(text)
@@ -905,15 +962,15 @@ def get_instruction_hint(text: str) -> str:
 def get_persona_hint(text: str) -> str:
     parts = text.split()
     if text == "/persona" or text == "/persona " or len(parts) == 1:
-        return "next: add | list | use | show | delete | restart | clear"
+        return "next: add | list | use | show | delete | restart | knowledge | research | clear"
     action = parts[1]
     if action == "add":
         return persona_add_hint(text)
-    if action in {"use", "show", "delete", "restart"}:
+    if action in {"use", "show", "delete", "restart", "knowledge", "research"}:
         return "next: NAME"
     if action in {"list", "clear"}:
         return ""
-    return "next: add | list | use | show | delete | restart | clear"
+    return "next: add | list | use | show | delete | restart | knowledge | research | clear"
 
 
 def persona_add_hint(text: str) -> str:
@@ -930,7 +987,11 @@ def persona_add_hint(text: str) -> str:
 
 def completion_options(conn: sqlite3.Connection, line: str, text: str, commands: list[str]) -> list[str]:
     if line.startswith("@"):
-        return [f"@{persona['name']} " for persona in list_personas(conn) if f"@{persona['name']}".startswith(text)]
+        return [
+            f"@{persona['name']} "
+            for persona in [get_self_persona(), *list_personas(conn)]
+            if f"@{persona['name']}".startswith(text)
+        ]
     if line.startswith("/persona "):
         return readline_persona_options(conn, line, text)
     if line.startswith("/model "):
@@ -953,8 +1014,9 @@ def readline_persona_options(conn: sqlite3.Connection, line: str, text: str) -> 
     if len(parts) == 1 or (len(parts) == 2 and not line.endswith(" ")):
         return [action for action in PERSONA_ACTIONS if action.startswith(text)]
     action = parts[1] if len(parts) > 1 else ""
-    if action in {"use", "show", "delete", "restart"}:
-        return [persona["name"] for persona in list_personas(conn) if persona["name"].startswith(text)]
+    if action in {"use", "show", "delete", "restart", "knowledge", "research"}:
+        personas = [get_self_persona(), *list_personas(conn)] if action == "show" else list_personas(conn)
+        return [persona["name"] for persona in personas if persona["name"].startswith(text)]
     if action == "add":
         arg_index = persona_add_arg_index(line)
         if arg_index == 1:

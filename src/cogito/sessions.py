@@ -13,6 +13,7 @@ from .local_extractor import extract_with_model
 from .memory import add_event, add_memory, context_pack
 from .embeddings import ensure_memory_embedding
 from .policy import ContextRequest
+from .persona_knowledge import build_persona_knowledge_context
 from .settings import get_chat_model, get_memory_model
 from .tool_manager import infer_agent_for_model
 
@@ -164,6 +165,7 @@ def ask_session(
     add_turn(conn, session_id=session_id, agent=selected_agent, role="user", content=user_prompt)
     pack = context_pack(conn, query=user_prompt, request=request, limit=limit)
     prompt = build_session_prompt(
+        conn=conn,
         session=session,
         turns=get_turns(conn, session_id=session_id),
         context=pack["context"],
@@ -215,6 +217,7 @@ def ask_session(
 
 def build_session_prompt(
     *,
+    conn: sqlite3.Connection,
     session: dict[str, Any],
     turns: list[dict[str, Any]],
     context: str,
@@ -235,6 +238,13 @@ def build_session_prompt(
     if recent:
         session_block.extend(["Recent session turns:", recent])
     if persona:
+        persona_knowledge = ""
+        if not persona.get("virtual"):
+            persona_knowledge = build_persona_knowledge_context(
+                conn,
+                persona_name=persona["name"],
+                query=user_prompt,
+            )
         session_block.extend(
             [
                 "",
@@ -245,6 +255,8 @@ def build_session_prompt(
                 persona["description"],
             ]
         )
+        if persona_knowledge:
+            session_block.extend(["", persona_knowledge])
     session_context = "\n".join(session_block)
     return build_enriched_prompt(f"{session_context}\n\n{context}", user_prompt)
 
