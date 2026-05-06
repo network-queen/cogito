@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import html
+import asyncio
 import re
 import sqlite3
+import threading
 import urllib.parse
 import urllib.request
 from html.parser import HTMLParser
@@ -249,8 +251,26 @@ def collect_osint_documents(source: str, *, limit: int) -> dict[str, Any]:
 
 
 def collect_browser_documents(source: str, *, limit: int, wait_seconds: float) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    error: list[BaseException] = []
+
+    def run() -> None:
+        try:
+            result.update(asyncio.run(collect_browser_documents_async(source, limit=limit, wait_seconds=wait_seconds)))
+        except BaseException as exc:
+            error.append(exc)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    thread.join()
+    if error:
+        raise error[0]
+    return result
+
+
+async def collect_browser_documents_async(source: str, *, limit: int, wait_seconds: float) -> dict[str, Any]:
     try:
-        from playwright.sync_api import sync_playwright
+        from playwright.async_api import async_playwright
     except ImportError as exc:
         raise RuntimeError("browser research needs playwright; run: .venv/bin/pip install -e .") from exc
 
@@ -258,9 +278,9 @@ def collect_browser_documents(source: str, *, limit: int, wait_seconds: float) -
     target_url = source if is_url(source) else "https://duckduckgo.com/?" + urllib.parse.urlencode({"q": source})
     profile_dir = browser_profile_dir()
     profile_dir.mkdir(parents=True, exist_ok=True)
-    with sync_playwright() as p:
+    async with async_playwright() as p:
         try:
-            context = p.chromium.launch_persistent_context(
+            context = await p.chromium.launch_persistent_context(
                 str(profile_dir),
                 headless=False,
                 channel="chrome",
@@ -268,7 +288,7 @@ def collect_browser_documents(source: str, *, limit: int, wait_seconds: float) -
             )
         except Exception:
             try:
-                context = p.chromium.launch_persistent_context(
+                context = await p.chromium.launch_persistent_context(
                     str(profile_dir),
                     headless=False,
                     viewport={"width": 1440, "height": 1000},
@@ -279,21 +299,23 @@ def collect_browser_documents(source: str, *, limit: int, wait_seconds: float) -
                     "install Chrome or run: .venv/bin/python -m playwright install chromium"
                 ) from exc
         page = context.pages[0] if context.pages else context.new_page()
-        page.goto(target_url, wait_until="domcontentloaded", timeout=60_000)
+        if not context.pages:
+            page = await page
+        await page.goto(target_url, wait_until="domcontentloaded", timeout=60_000)
         try:
-            page.wait_for_load_state("networkidle", timeout=15_000)
+            await page.wait_for_load_state("networkidle", timeout=15_000)
         except Exception:
             pass
         if wait_seconds > 0:
-            page.wait_for_timeout(int(wait_seconds * 1000))
+            await page.wait_for_timeout(int(wait_seconds * 1000))
         current_url = page.url
-        title = page.title()
-        text = page.locator("body").inner_text(timeout=10_000)
-        links = page.eval_on_selector_all(
+        title = await page.title()
+        text = await page.locator("body").inner_text(timeout=10_000)
+        links = await page.eval_on_selector_all(
             "a[href]",
             "els => els.map(a => a.href).filter(Boolean).slice(0, 50)",
         )
-        context.close()
+        await context.close()
     documents = [{"url": current_url, "text": f"{title}\n{text}"}] if text.strip() else []
     return {
         "query": query,

@@ -9,6 +9,7 @@ from cogito.osint import (
     browser_profile_dir,
     query_from_url,
     research_target,
+    collect_browser_documents,
     research_target_with_browser_receipt,
     research_target_with_receipt,
 )
@@ -74,6 +75,14 @@ class OsintTests(unittest.TestCase):
 
         self.assertIn("browser-profile", receipt["browser_profile"])
         self.assertEqual(receipt["saved_chunks"][0]["store"], "user_memory")
+
+    def test_collect_browser_documents_runs_async_impl_in_thread(self):
+        expected = fake_collection() | {"browser_profile": str(browser_profile_dir())}
+
+        with patch("cogito.osint.collect_browser_documents_async", return_value=expected):
+            result = collect_browser_documents("https://example.com/ruslan", limit=2, wait_seconds=0)
+
+        self.assertEqual(result["browser_profile"], expected["browser_profile"])
 
 
 def fake_collection():
