@@ -29,7 +29,15 @@ from .settings import (
     set_embedding_model,
     set_memory_model,
 )
-from .sessions import ask_session, create_session, current_db_path, get_session, process_pending_memory_jobs, set_session_model
+from .sessions import (
+    add_turn,
+    ask_session,
+    create_session,
+    current_db_path,
+    get_session,
+    process_pending_memory_jobs,
+    set_session_model,
+)
 from .tool_manager import all_models, model_catalog
 
 
@@ -394,6 +402,7 @@ def run_split_tui(
                 memory_mode=memory_mode,
                 persona=persona,
             )
+            enriched_prompt = str(result["prompt"])
             if persona["agent"] == "local":
                 result = ask_session(
                     bg_conn,
@@ -413,11 +422,23 @@ def run_split_tui(
                 result = run_agent_pty(
                     key=persona["name"],
                     agent=persona["agent"],
-                    prompt=result["prompt"],
+                    prompt=enriched_prompt,
                     yolo=yolo or bool(persona.get("yolo")),
                     model=persona.get("model"),
                     on_output=lambda line: append_job(job, line),
                 )
+                captured = clean_terminal_text(str(result.get("output") or "")).strip()
+                add_turn(
+                    bg_conn,
+                    session_id=state["session"]["id"],
+                    agent=persona["agent"],
+                    role="agent",
+                    content=captured or "No persona output captured.",
+                    prompt=enriched_prompt,
+                    exit_code=int(result["exit_code"]),
+                )
+                if not captured:
+                    append_job(job, "no output captured")
             with lock:
                 job["status"] = "done" if result["exit_code"] == 0 else f"exit {result['exit_code']}"
                 if "session" in result:

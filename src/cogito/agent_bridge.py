@@ -88,6 +88,7 @@ class PersistentPtySession:
         self.on_output = on_output
         self.output_parts: list[str] = []
         self.lock = threading.Lock()
+        self.output_lock = threading.Lock()
         self.closed = False
         self.command = build_interactive_agent_command(agent, yolo=yolo, model=model)
         if shutil.which(self.command[0]) is None:
@@ -108,19 +109,37 @@ class PersistentPtySession:
                 if not data:
                     break
                 text = data.decode("utf-8", errors="replace")
-                self.output_parts.append(text)
+                with self.output_lock:
+                    self.output_parts.append(text)
                 if self.on_output:
                     self.on_output(text)
             except OSError:
                 break
         self.closed = True
 
-    def send(self, prompt: str) -> str:
+    def send(self, prompt: str, *, timeout: float = 180.0, idle_timeout: float = 2.0) -> str:
         with self.lock:
-            before = len("".join(self.output_parts))
-            os.write(self.fd, prompt.encode("utf-8", errors="replace") + b"\n")
-            time.sleep(0.2)
-            return "".join(self.output_parts)[before:]
+            before = len(self.output_text())
+            payload = b"\x1b[200~" + prompt.encode("utf-8", errors="replace") + b"\x1b[201~\r"
+            os.write(self.fd, payload)
+            deadline = time.monotonic() + timeout
+            last_len = before
+            last_change = time.monotonic()
+            saw_output = False
+            while time.monotonic() < deadline:
+                time.sleep(0.2)
+                current_len = len(self.output_text())
+                if current_len > last_len:
+                    saw_output = True
+                    last_len = current_len
+                    last_change = time.monotonic()
+                if saw_output and time.monotonic() - last_change >= idle_timeout:
+                    break
+            return self.output_text()[before:]
+
+    def output_text(self) -> str:
+        with self.output_lock:
+            return "".join(self.output_parts)
 
     def stop(self) -> None:
         self.closed = True
