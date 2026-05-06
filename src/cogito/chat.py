@@ -9,6 +9,7 @@ import threading
 import time
 from typing import TextIO
 
+from .agent_bridge import run_agent_pty, stop_agent_pty
 from .db import connect, default_db_path
 from .memory import list_memories
 from .personas import add_persona_for_model, delete_persona, get_persona, list_personas, maybe_extract_persona_call
@@ -34,6 +35,7 @@ COMMAND_HELP = [
     ("/persona use NAME", "set active persona"),
     ("/persona show NAME", "show persona"),
     ("/persona delete NAME", "delete persona"),
+    ("/persona restart NAME", "restart persona PTY"),
     ("/persona clear", "clear active persona"),
     ("/chat-model [MODEL]", "show or change default local chat model"),
     ("/memory-model [MODEL]", "show or change memory extractor"),
@@ -56,7 +58,7 @@ COMMAND_EXAMPLES = [
     "/embedding-model nomic-embed-text",
 ]
 
-PERSONA_ACTIONS = ["add", "list", "use", "show", "delete", "clear"]
+PERSONA_ACTIONS = ["add", "list", "use", "show", "delete", "restart", "clear"]
 VERBOSE_OPTIONS = ["on", "off"]
 CHAT_MODEL_OPTIONS = ["qwen3:0.6b", "qwen3:1.7b", "llama3.2"]
 MEMORY_MODEL_OPTIONS = ["qwen3:0.6b", "qwen3:1.7b", "heuristic", "off"]
@@ -378,18 +380,38 @@ def run_split_tui(
                 session_id=state["session"]["id"],
                 user_prompt=routed_text,
                 agent=persona["agent"],
-                execute=True,
+                execute=False,
                 memory_mode=memory_mode,
-                stream=True,
-                yolo=yolo or bool(persona.get("yolo")),
-                model=persona.get("model"),
                 persona=persona,
-                echo_output=False,
-                on_output=lambda line: append_job(job, line),
             )
+            if persona["agent"] == "local":
+                result = ask_session(
+                    bg_conn,
+                    session_id=state["session"]["id"],
+                    user_prompt=routed_text,
+                    agent=persona["agent"],
+                    execute=True,
+                    memory_mode="off",
+                    stream=True,
+                    yolo=yolo or bool(persona.get("yolo")),
+                    model=persona.get("model"),
+                    persona=persona,
+                    echo_output=False,
+                    on_output=lambda line: append_job(job, line),
+                )
+            else:
+                result = run_agent_pty(
+                    key=persona["name"],
+                    agent=persona["agent"],
+                    prompt=result["prompt"],
+                    yolo=yolo or bool(persona.get("yolo")),
+                    model=persona.get("model"),
+                    on_output=lambda line: append_job(job, line),
+                )
             with lock:
                 job["status"] = "done" if result["exit_code"] == 0 else f"exit {result['exit_code']}"
-                state["session"] = result["session"]
+                if "session" in result:
+                    state["session"] = result["session"]
         except Exception as exc:
             append_job(job, f"error: {exc}")
             with lock:
@@ -537,10 +559,18 @@ def handle_persona_command(
         if len(parts) != 3:
             write(output_stream, "Usage: /persona delete NAME")
             return True, session, active_persona
+        stop_agent_pty(parts[2])
         delete_persona(conn, parts[2])
         if verbose:
             write(output_stream, f"Persona deleted: {parts[2]}")
         return True, session, None if active_persona and active_persona["name"] == parts[2] else active_persona
+    if action == "restart":
+        if len(parts) != 3:
+            write(output_stream, "Usage: /persona restart NAME")
+            return True, session, active_persona
+        restarted = stop_agent_pty(parts[2])
+        write(output_stream, f"Persona restarted: {parts[2]}" if restarted else f"Persona was not running: {parts[2]}")
+        return True, session, active_persona
     if action == "clear":
         if verbose:
             write(output_stream, "Persona cleared.")
@@ -651,6 +681,7 @@ def setup_autocomplete(conn: sqlite3.Connection) -> None:
         "/persona clear",
         "/persona delete",
         "/persona list",
+        "/persona restart",
         "/persona show",
         "/persona use",
         "/verbose off",
@@ -757,7 +788,7 @@ def prompt_completions(conn: sqlite3.Connection, text: str) -> list[tuple[str, s
     argument_completions = command_argument_completions(conn, text)
     if argument_completions:
         return argument_completions
-    for prefix in ("/persona use ", "/persona show ", "/persona delete "):
+    for prefix in ("/persona use ", "/persona show ", "/persona delete ", "/persona restart "):
         if text.startswith(prefix):
             fragment = text.removeprefix(prefix)
             return [
@@ -803,7 +834,7 @@ def persona_argument_completions(conn: sqlite3.Connection, text: str) -> list[tu
     if len(parts) < 2:
         return []
     action = parts[1]
-    if action in {"use", "show", "delete"}:
+    if action in {"use", "show", "delete", "restart"}:
         return option_completions([persona["name"] for persona in list_personas(conn)], fragment, "persona")
     if action != "add":
         return []
@@ -858,15 +889,15 @@ def get_instruction_hint(text: str) -> str:
 def get_persona_hint(text: str) -> str:
     parts = text.split()
     if text == "/persona" or text == "/persona " or len(parts) == 1:
-        return "next: add | list | use | show | delete | clear"
+        return "next: add | list | use | show | delete | restart | clear"
     action = parts[1]
     if action == "add":
         return persona_add_hint(text)
-    if action in {"use", "show", "delete"}:
+    if action in {"use", "show", "delete", "restart"}:
         return "next: NAME"
     if action in {"list", "clear"}:
         return ""
-    return "next: add | list | use | show | delete | clear"
+    return "next: add | list | use | show | delete | restart | clear"
 
 
 def persona_add_hint(text: str) -> str:
@@ -908,7 +939,7 @@ def readline_persona_options(conn: sqlite3.Connection, line: str, text: str) -> 
     if len(parts) == 1 or (len(parts) == 2 and not line.endswith(" ")):
         return [action for action in PERSONA_ACTIONS if action.startswith(text)]
     action = parts[1] if len(parts) > 1 else ""
-    if action in {"use", "show", "delete"}:
+    if action in {"use", "show", "delete", "restart"}:
         return [persona["name"] for persona in list_personas(conn) if persona["name"].startswith(text)]
     if action == "add":
         arg_index = persona_add_arg_index(line)

@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import shutil
+import os
+import pty
+import select
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -11,6 +16,9 @@ from .local_extractor import ollama_chat_generate
 from .memory import context_pack
 from .policy import ContextRequest
 from .settings import DEFAULT_CHAT_MODEL, normalize_chat_model
+
+
+_PTY_SESSIONS: dict[str, "PersistentPtySession"] = {}
 
 
 def build_agent_command(agent: str, prompt: str, *, yolo: bool = False, model: str | None = None) -> list[str]:
@@ -38,6 +46,134 @@ def build_agent_command(agent: str, prompt: str, *, yolo: bool = False, model: s
             command.extend(["-m", model])
         return command + [prompt]
     raise ValueError(f"unsupported agent: {agent}")
+
+
+def build_interactive_agent_command(agent: str, *, yolo: bool = False, model: str | None = None) -> list[str]:
+    if agent in {"codex", "codex-exec"}:
+        command = ["codex", "--no-alt-screen"]
+        if yolo:
+            command.append("--dangerously-bypass-approvals-and-sandbox")
+        if model:
+            command.extend(["-m", model])
+        return command
+    if agent == "claude":
+        command = ["claude"]
+        if yolo:
+            command.append("--dangerously-skip-permissions")
+        if model:
+            command.extend(["--model", model])
+        return command
+    if agent == "opencode":
+        command = ["opencode"]
+        if model:
+            command.extend(["-m", model])
+        return command
+    raise ValueError(f"persistent PTY unsupported for agent: {agent}")
+
+
+class PersistentPtySession:
+    def __init__(
+        self,
+        *,
+        key: str,
+        agent: str,
+        model: str | None,
+        yolo: bool,
+        on_output: Callable[[str], None] | None,
+    ):
+        self.key = key
+        self.agent = agent
+        self.model = model
+        self.yolo = yolo
+        self.on_output = on_output
+        self.output_parts: list[str] = []
+        self.lock = threading.Lock()
+        self.closed = False
+        self.command = build_interactive_agent_command(agent, yolo=yolo, model=model)
+        if shutil.which(self.command[0]) is None:
+            raise RuntimeError(f"{self.command[0]} not found in PATH")
+        self.pid, self.fd = pty.fork()
+        if self.pid == 0:
+            os.execvp(self.command[0], self.command)
+        self.reader = threading.Thread(target=self._read_loop, daemon=True)
+        self.reader.start()
+
+    def _read_loop(self) -> None:
+        while not self.closed:
+            try:
+                ready, _, _ = select.select([self.fd], [], [], 0.2)
+                if not ready:
+                    continue
+                data = os.read(self.fd, 4096)
+                if not data:
+                    break
+                text = data.decode("utf-8", errors="replace")
+                self.output_parts.append(text)
+                if self.on_output:
+                    self.on_output(text)
+            except OSError:
+                break
+        self.closed = True
+
+    def send(self, prompt: str) -> str:
+        with self.lock:
+            before = len("".join(self.output_parts))
+            os.write(self.fd, prompt.encode("utf-8", errors="replace") + b"\n")
+            time.sleep(0.2)
+            return "".join(self.output_parts)[before:]
+
+    def stop(self) -> None:
+        self.closed = True
+        try:
+            os.close(self.fd)
+        except OSError:
+            pass
+        try:
+            os.kill(self.pid, 15)
+        except OSError:
+            pass
+
+
+def get_pty_session(
+    *,
+    key: str,
+    agent: str,
+    model: str | None,
+    yolo: bool,
+    on_output: Callable[[str], None] | None,
+) -> PersistentPtySession:
+    existing = _PTY_SESSIONS.get(key)
+    if existing and not existing.closed and existing.agent == agent and existing.model == model:
+        if on_output:
+            existing.on_output = on_output
+        return existing
+    if existing:
+        existing.stop()
+    session = PersistentPtySession(key=key, agent=agent, model=model, yolo=yolo, on_output=on_output)
+    _PTY_SESSIONS[key] = session
+    return session
+
+
+def run_agent_pty(
+    *,
+    key: str,
+    agent: str,
+    prompt: str,
+    yolo: bool = False,
+    model: str | None = None,
+    on_output: Callable[[str], None] | None = None,
+) -> dict[str, str | int]:
+    session = get_pty_session(key=key, agent=agent, model=model, yolo=yolo, on_output=on_output)
+    output = session.send(prompt)
+    return {"exit_code": 0, "output": output}
+
+
+def stop_agent_pty(key: str) -> bool:
+    session = _PTY_SESSIONS.pop(key, None)
+    if not session:
+        return False
+    session.stop()
+    return True
 
 
 def build_enriched_prompt(context: str, user_prompt: str) -> str:

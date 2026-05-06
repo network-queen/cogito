@@ -3,7 +3,13 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from cogito.agent_bridge import build_agent_command, build_enriched_prompt, extract_final_answer, run_agent_capture
+from cogito.agent_bridge import (
+    build_agent_command,
+    build_enriched_prompt,
+    build_interactive_agent_command,
+    extract_final_answer,
+    run_agent_capture,
+)
 
 
 class AgentBridgeTests(unittest.TestCase):
@@ -25,6 +31,17 @@ class AgentBridgeTests(unittest.TestCase):
         self.assertIn("--dangerously-skip-permissions", claude)
         self.assertIn("sonnet", claude)
         self.assertIn("--dangerously-skip-permissions", opencode)
+
+    def test_interactive_commands_start_tui_processes(self):
+        codex = build_interactive_agent_command("codex", yolo=True, model="gpt-5.5")
+        claude = build_interactive_agent_command("claude", yolo=True, model="sonnet")
+        opencode = build_interactive_agent_command("opencode", model="opencode/gpt-5-nano")
+
+        self.assertEqual(codex[:2], ["codex", "--no-alt-screen"])
+        self.assertIn("gpt-5.5", codex)
+        self.assertIn("--dangerously-skip-permissions", claude)
+        self.assertIn("sonnet", claude)
+        self.assertIn("opencode/gpt-5-nano", opencode)
 
     def test_extract_final_answer_removes_codex_wrapper(self):
         raw = """OpenAI Codex v0.128.0

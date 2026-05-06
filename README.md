@@ -66,7 +66,9 @@ Interactive terminals use a split TUI:
 - Left pane: Cogito conversation and command input.
 - Right pane: recent persona calls, status, and live underlying adapter output.
 - `@persona ...` calls are queued in the background, so the left pane remains usable.
-- Calls to the same persona are processed by that persona's Cogito worker in order.
+- External personas keep a persistent PTY process per persona, so later calls go to the same live Codex, Claude Code, or opencode session.
+- Calls to the same persona are queued and sent to that persona's PTY in order.
+- Use `/persona restart NAME` if a persona process gets stuck or you want a clean session.
 
 By default, chat hides Cogito metadata. Use verbose mode when you want command confirmations and session details:
 
