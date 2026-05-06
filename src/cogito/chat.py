@@ -22,14 +22,12 @@ from .settings import (
     set_memory_model,
 )
 from .sessions import ask_session, create_session, current_db_path, get_session, process_pending_memory_jobs, set_session_model
-from .tool_manager import all_models, install_for_model, model_catalog, update_for_model
+from .tool_manager import all_models, model_catalog
 
 
 COMMAND_HELP = [
     ("/model [MODEL]", "show or change active model"),
     ("/models", "list detected models"),
-    ("/install MODEL", "install the adapter needed for model"),
-    ("/update MODEL", "update the adapter needed for model"),
     ("/persona add NAME MODEL DESCRIPTION", "create persona"),
     ("/persona list", "list personas"),
     ("/persona use NAME", "set active persona"),
@@ -50,7 +48,6 @@ COMMAND_HELP = [
 COMMAND_EXAMPLES = [
     "/chat-model qwen3:0.6b",
     "/model gpt-5.5",
-    "/install gpt-5.5",
     "/persona add architect gpt-5.5 Senior pragmatic software architect.",
     "/persona use architect",
     "@architect review this design",
@@ -218,17 +215,6 @@ def handle_command(
         for agent, models in model_catalog().items():
             if models:
                 write(output_stream, f"{color(agent, 'cyan')}: {', '.join(models[:12])}")
-        return True, session, active_persona
-    if name in {"/install", "/update"}:
-        if len(parts) != 2:
-            write(output_stream, f"Usage: {name} MODEL")
-            return True, session, active_persona
-        result = install_for_model(parts[1]) if name == "/install" else update_for_model(parts[1])
-        write(output_stream, color("$ " + " ".join(result.command), "cyan"))
-        if result.output:
-            write(output_stream, result.output)
-        if result.code != 0:
-            write(output_stream, color(f"Command exited with {result.code}", "red"))
         return True, session, active_persona
     if name == "/chat-model":
         if len(parts) == 1:
@@ -711,8 +697,6 @@ def setup_autocomplete(conn: sqlite3.Connection) -> None:
     commands = [item[0].split(" ")[0] for item in COMMAND_HELP] + [
         "/model",
         "/models",
-        "/install",
-        "/update",
         "/persona add",
         "/persona clear",
         "/persona delete",
@@ -847,8 +831,6 @@ def command_completion(command: str, description: str, text: str) -> tuple[str, 
 def command_argument_completions(conn: sqlite3.Connection, text: str) -> list[tuple[str, str, str, int]]:
     if text.startswith("/model "):
         return option_completions(model_options(), last_fragment(text), "model")
-    if text.startswith("/install ") or text.startswith("/update "):
-        return option_completions(model_options(), last_fragment(text), "model")
     if text.startswith("/verbose "):
         return option_completions(VERBOSE_OPTIONS, last_fragment(text), "mode")
     if text.startswith("/chat-model "):
@@ -907,8 +889,6 @@ def get_instruction_hint(text: str) -> str:
         return ""
     if text.startswith("/model"):
         return "next: MODEL"
-    if text.startswith("/install") or text.startswith("/update"):
-        return "next: MODEL"
     if text.startswith("/verbose"):
         return "next: on | off"
     if text.startswith("/chat-model"):
@@ -954,8 +934,6 @@ def completion_options(conn: sqlite3.Connection, line: str, text: str, commands:
     if line.startswith("/persona "):
         return readline_persona_options(conn, line, text)
     if line.startswith("/model "):
-        return [model for model in model_options() if model.startswith(text)]
-    if line.startswith("/install ") or line.startswith("/update "):
         return [model for model in model_options() if model.startswith(text)]
     if line.startswith("/verbose "):
         return [option for option in VERBOSE_OPTIONS if option.startswith(text)]

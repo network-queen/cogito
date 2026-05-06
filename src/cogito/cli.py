@@ -29,7 +29,7 @@ from .settings import (
     set_memory_model,
 )
 from .sessions import SUPPORTED_AGENTS, ask_session, create_session, list_sessions, set_session_agent, set_session_model
-from .tool_manager import install_for_model, model_catalog, update_for_model
+from .tool_manager import ensure_adapter_for_model, install_for_model, model_catalog, update_for_model
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -313,6 +313,11 @@ def cmd_run(conn, args: argparse.Namespace) -> int:
 
 
 def cmd_chat(conn, args: argparse.Namespace) -> int:
+    ensure_result = ensure_adapter_for_model(args.model)
+    if ensure_result is not None:
+        print_command_result(ensure_result)
+        if ensure_result.code != 0:
+            return int(ensure_result.code)
     return run_chat(
         conn,
         agent=args.agent,

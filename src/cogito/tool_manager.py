@@ -65,6 +65,16 @@ def update_for_model(model: str) -> ToolCommandResult:
     return update_tool(infer_agent_for_model(model))
 
 
+def ensure_adapter_for_model(model: str | None) -> ToolCommandResult | None:
+    if not model:
+        return None
+    agent = infer_agent_for_model(model)
+    canonical = canonical_tool(agent)
+    if canonical == "local" or shutil.which(canonical):
+        return None
+    return install_tool(canonical)
+
+
 def install_command(tool: str) -> list[str]:
     if tool == "local":
         return ["docker", "compose", "up", "-d", "ollama"]

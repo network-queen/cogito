@@ -52,7 +52,6 @@ Inside `cogito chat`, normal turns go to the active model. Cogito infers the nee
 > /model sonnet
 > explain the tradeoffs
 > /models
-> /install gpt-5.5
 > /chat-model
 > /chat-model qwen3:1.7b
 > /memory-model
@@ -129,6 +128,12 @@ docker compose up -d ollama
 ```
 
 Cogito itself runs on the host so it can launch your installed Codex, Claude Code, and opencode CLIs with their existing auth.
+When `cogito chat --model MODEL` starts, Cogito checks the inferred adapter and installs it if it is missing. Manual startup/bootstrap commands are also available:
+
+```sh
+cogito install gpt-5.5
+cogito update sonnet
+```
 
 Keep one Cogito session while switching models:
 
