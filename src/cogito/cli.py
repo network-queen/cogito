@@ -134,6 +134,11 @@ def build_parser() -> argparse.ArgumentParser:
     web.add_argument("--host", default="127.0.0.1")
     web.add_argument("--port", type=int, default=8765)
     web.add_argument("--no-open", action="store_true", help="Do not open the browser automatically")
+    web.add_argument(
+        "--research-browser",
+        action="store_true",
+        help="Open the UI in Cogito's persistent browser profile used by browser OSINT",
+    )
     web.set_defaults(func=cmd_web)
 
     install = sub.add_parser("install", help="Install the adapter needed for MODEL")
@@ -346,7 +351,13 @@ def cmd_models(conn, args: argparse.Namespace) -> int:
 
 
 def cmd_web(conn, args: argparse.Namespace) -> int:
-    return run_web_ui(conn, host=args.host, port=args.port, open_browser=not args.no_open)
+    return run_web_ui(
+        conn,
+        host=args.host,
+        port=args.port,
+        open_browser=not args.no_open,
+        research_browser=args.research_browser,
+    )
 
 
 def cmd_install(conn, args: argparse.Namespace) -> int:

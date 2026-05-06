@@ -117,6 +117,14 @@ cogito web
 
 The local UI opens at `http://127.0.0.1:8765`. It can create personas, scan OSINT sources for `@me` or any persona, show scanned source previews for approval, save only approved sources into memory/RAG, and reject bad facts after they are saved.
 
+For logged-in OSINT, run:
+
+```sh
+cogito web --research-browser
+```
+
+This opens the UI inside Cogito's persistent browser profile, the same profile used by browser research. Log in to LinkedIn or other sites there once, then run browser research from the UI.
+
 Slash commands and `@persona` names autocomplete with Tab in an interactive terminal.
 Typing `/` or `/per` and pressing Enter shows matching commands. `/help` shows full command reference. Prompts, personas, and metadata lists use terminal colors. Up and Down traverse a shared history file at `~/.local/share/cogito/history`, so previous prompts are available after restarting Cogito.
 

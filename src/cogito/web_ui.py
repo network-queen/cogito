@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
 import threading
@@ -12,6 +13,7 @@ from .db import connect
 from .ids import new_id
 from .memory import delete_memory, ensure_db, list_memories
 from .osint import (
+    browser_profile_dir,
     collect_browser_documents,
     collect_osint_documents,
     research_target_with_browser_receipt,
@@ -24,22 +26,75 @@ from .sessions import current_db_path
 from .tool_manager import all_models
 
 
-def run_web_ui(conn: sqlite3.Connection, *, host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> int:
+def run_web_ui(
+    conn: sqlite3.Connection,
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8765,
+    open_browser: bool = True,
+    research_browser: bool = False,
+) -> int:
     db_path = current_db_path(conn)
     if not db_path:
         raise RuntimeError("Cogito web UI needs a file-backed database")
     server = ThreadingHTTPServer((host, port), make_handler(db_path))
     url = f"http://{host}:{server.server_address[1]}"
     print(f"Cogito web UI: {url}")
+    stop_browser = threading.Event()
     if open_browser:
-        threading.Timer(0.25, lambda: webbrowser.open(url)).start()
+        open_web_ui(url, research_browser=research_browser, stop_event=stop_browser)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print()
     finally:
+        stop_browser.set()
         server.server_close()
     return 0
+
+
+def open_web_ui(url: str, *, research_browser: bool, stop_event: threading.Event) -> None:
+    if not research_browser:
+        threading.Timer(0.25, lambda: webbrowser.open(url)).start()
+        return
+    thread = threading.Thread(target=open_research_browser_ui, args=(url, stop_event), daemon=True)
+    thread.start()
+
+
+def open_research_browser_ui(url: str, stop_event: threading.Event) -> None:
+    try:
+        asyncio.run(open_research_browser_ui_async(url, stop_event))
+    except Exception:
+        webbrowser.open(url)
+
+
+async def open_research_browser_ui_async(url: str, stop_event: threading.Event) -> None:
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError as exc:
+        raise RuntimeError("browser UI needs playwright; run: .venv/bin/pip install -e .") from exc
+
+    profile_dir = browser_profile_dir()
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    async with async_playwright() as p:
+        try:
+            context = await p.chromium.launch_persistent_context(
+                str(profile_dir),
+                headless=False,
+                channel="chrome",
+                viewport={"width": 1440, "height": 1000},
+            )
+        except Exception:
+            context = await p.chromium.launch_persistent_context(
+                str(profile_dir),
+                headless=False,
+                viewport={"width": 1440, "height": 1000},
+            )
+        page = context.pages[0] if context.pages else await context.new_page()
+        await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+        while not stop_event.is_set():
+            await asyncio.sleep(0.5)
+        await context.close()
 
 
 def make_handler(db_path: str):
