@@ -382,8 +382,15 @@ def read_with_prompt_toolkit(conn: sqlite3.Connection, *, session: dict, verbose
     return prompt_session.prompt(prompt)
 
 
-class CogitoCompleter:
+try:
+    from prompt_toolkit.completion import Completer as PromptToolkitCompleter
+except ImportError:
+    PromptToolkitCompleter = object
+
+
+class CogitoCompleter(PromptToolkitCompleter):
     def __init__(self, conn: sqlite3.Connection):
+        super().__init__()
         self.conn = conn
 
     def get_completions(self, document, complete_event):
