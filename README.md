@@ -34,6 +34,15 @@ cogito ask claude "summarize what this project does"
 cogito ask opencode "inspect this repo"
 ```
 
+Keep one Cogito session while switching tools:
+
+```sh
+cogito session new --title "Cogito build" --agent codex
+cogito session ask <session-id> --agent codex "review the current architecture"
+cogito session ask <session-id> --agent claude "explain the tradeoffs"
+cogito session ask <session-id> --agent opencode "inspect implementation gaps"
+```
+
 Register Cogito as MCP:
 
 ```sh

@@ -19,6 +19,7 @@ from .memory import (
     search_memories,
 )
 from .policy import ContextRequest
+from .sessions import ask_session, create_session, list_sessions, set_session_agent
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -82,6 +83,40 @@ def build_parser() -> argparse.ArgumentParser:
     add_policy_args(ask)
     ask.add_argument("--limit", type=int, default=8)
     ask.set_defaults(func=cmd_ask)
+
+    run = sub.add_parser("run", help="Start or continue a Cogito-owned session with selected agent")
+    run.add_argument("agent", choices=["codex", "codex-exec", "claude", "opencode"])
+    run.add_argument("query")
+    run.add_argument("--session", help="Existing session id. Creates a session when omitted.")
+    run.add_argument("--title", help="Title for new session")
+    run.add_argument("--lens", default="coding")
+    run.add_argument("--max-sensitivity", default="professional")
+    run.add_argument("--limit", type=int, default=8)
+    run.add_argument("--print-prompt", action="store_true", help="Print enriched prompt instead of executing agent")
+    run.set_defaults(func=cmd_run)
+
+    session = sub.add_parser("session", help="Manage Cogito sessions")
+    session_sub = session.add_subparsers(required=True)
+    session_new = session_sub.add_parser("new", help="Create a session")
+    session_new.add_argument("--title", default="Untitled Cogito session")
+    session_new.add_argument("--agent", default="codex", choices=["codex", "codex-exec", "claude", "opencode"])
+    session_new.add_argument("--lens", default="coding")
+    session_new.add_argument("--max-sensitivity", default="professional")
+    session_new.set_defaults(func=cmd_session_new)
+    session_list = session_sub.add_parser("list", help="List sessions")
+    session_list.add_argument("--limit", type=int, default=20)
+    session_list.set_defaults(func=cmd_session_list)
+    session_tool = session_sub.add_parser("tool", help="Change session active agent")
+    session_tool.add_argument("session_id")
+    session_tool.add_argument("agent", choices=["codex", "codex-exec", "claude", "opencode"])
+    session_tool.set_defaults(func=cmd_session_tool)
+    session_ask = session_sub.add_parser("ask", help="Ask within existing session")
+    session_ask.add_argument("session_id")
+    session_ask.add_argument("query")
+    session_ask.add_argument("--agent", choices=["codex", "codex-exec", "claude", "opencode"])
+    session_ask.add_argument("--limit", type=int, default=8)
+    session_ask.add_argument("--print-prompt", action="store_true")
+    session_ask.set_defaults(func=cmd_session_ask)
 
     setup = sub.add_parser("setup-agent", help="Register Cogito as an MCP server for an agent")
     setup.add_argument("agent", choices=["codex", "claude", "opencode"])
@@ -188,6 +223,74 @@ def cmd_prompt(conn, args: argparse.Namespace) -> int:
 def cmd_ask(conn, args: argparse.Namespace) -> int:
     prompt = get_prompt(conn, user_prompt=args.query, request=request_from_args(args), limit=args.limit)
     return run_agent(args.agent, prompt)
+
+
+def cmd_run(conn, args: argparse.Namespace) -> int:
+    session = (
+        create_session(
+            conn,
+            title=args.title or args.query[:80],
+            agent=args.agent,
+            lens=args.lens,
+            max_sensitivity=args.max_sensitivity,
+        )
+        if not args.session
+        else set_session_agent(conn, session_id=args.session, agent=args.agent)
+    )
+    result = ask_session(
+        conn,
+        session_id=session["id"],
+        user_prompt=args.query,
+        agent=args.agent,
+        limit=args.limit,
+        execute=not args.print_prompt,
+    )
+    if args.print_prompt:
+        print(result["prompt"])
+    else:
+        print(f"Cogito session: {session['id']}")
+    return result["exit_code"] or 0
+
+
+def cmd_session_new(conn, args: argparse.Namespace) -> int:
+    print(
+        json.dumps(
+            create_session(
+                conn,
+                title=args.title,
+                agent=args.agent,
+                lens=args.lens,
+                max_sensitivity=args.max_sensitivity,
+            ),
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def cmd_session_list(conn, args: argparse.Namespace) -> int:
+    print(json.dumps(list_sessions(conn, limit=args.limit), indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_session_tool(conn, args: argparse.Namespace) -> int:
+    print(json.dumps(set_session_agent(conn, session_id=args.session_id, agent=args.agent), indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_session_ask(conn, args: argparse.Namespace) -> int:
+    result = ask_session(
+        conn,
+        session_id=args.session_id,
+        user_prompt=args.query,
+        agent=args.agent,
+        limit=args.limit,
+        execute=not args.print_prompt,
+    )
+    if args.print_prompt:
+        print(result["prompt"])
+    return result["exit_code"] or 0
 
 
 def cmd_setup_agent(conn, args: argparse.Namespace) -> int:

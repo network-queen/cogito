@@ -46,10 +46,35 @@ CREATE TABLE IF NOT EXISTS receipts (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  cwd TEXT NOT NULL,
+  summary TEXT NOT NULL DEFAULT '',
+  active_agent TEXT NOT NULL DEFAULT 'codex',
+  lens TEXT NOT NULL DEFAULT 'coding',
+  max_sensitivity TEXT NOT NULL DEFAULT 'professional',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS session_turns (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  agent TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  prompt TEXT NOT NULL DEFAULT '',
+  exit_code INTEGER,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(session_id) REFERENCES sessions(id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_memories_state ON memories(state);
 CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type);
 CREATE INDEX IF NOT EXISTS idx_memories_sensitivity ON memories(sensitivity);
 CREATE INDEX IF NOT EXISTS idx_events_source ON events(source);
+CREATE INDEX IF NOT EXISTS idx_session_turns_session ON session_turns(session_id);
 """
 
 
