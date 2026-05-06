@@ -13,7 +13,7 @@ from typing import TextIO
 from .agent_bridge import run_agent_capture, stop_agent_pty
 from .db import connect, default_db_path
 from .memory import list_memories
-from .osint import research_target
+from .osint import research_target_with_receipt
 from .persona_knowledge import research_persona_from_wikipedia
 from .personas import (
     add_persona_for_model,
@@ -298,12 +298,37 @@ def handle_research_command(
         write(output_stream, "Usage: /research @TARGET URL_OR_QUERY")
         return True, session, active_persona
     try:
-        created = research_target(conn, target=parts[1], source=" ".join(parts[2:]))
+        receipt = research_target_with_receipt(conn, target=parts[1], source=" ".join(parts[2:]))
     except Exception as exc:
         write(output_stream, f"Research failed: {exc}")
         return True, session, active_persona
-    write(output_stream, f"Research saved: {len(created)} chunks")
+    write(output_stream, format_research_receipt(receipt))
     return True, session, active_persona
+
+
+def format_research_receipt(receipt: dict) -> str:
+    lines = [
+        f"Research target: {receipt['target']}",
+        f"Search query: {receipt['query']}",
+        f"Discovered sources: {len(receipt['discovered_urls'])}",
+    ]
+    if receipt.get("seed_urls"):
+        lines.append("Seed sources:")
+        lines.extend(f"- {url}" for url in receipt["seed_urls"])
+    if receipt["discovered_urls"]:
+        lines.append("Found sources:")
+        lines.extend(f"- {url}" for url in receipt["discovered_urls"][:8])
+    if receipt["scanned_sources"]:
+        lines.append("Scanned sources:")
+        lines.extend(f"- {item['url']} ({item['chars']} chars)" for item in receipt["scanned_sources"])
+    if receipt["failed_sources"]:
+        lines.append("Skipped/failed sources:")
+        lines.extend(f"- {item['url']}: {item['error']}" for item in receipt["failed_sources"][:5])
+    lines.append(f"Saved chunks: {len(receipt['saved_chunks'])}")
+    for index, chunk in enumerate(receipt["saved_chunks"], start=1):
+        lines.append(f"{index}. {chunk['store']} {chunk['id']} from {chunk['source_url']}")
+        lines.append(f"   {chunk['preview']}")
+    return "\n".join(lines)
 
 
 class TextSink:

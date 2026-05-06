@@ -82,11 +82,29 @@ class ChatTests(unittest.TestCase):
         input_stream = io.StringIO("/research @me https://example.com/me\n/exit\n")
         output_stream = io.StringIO()
 
-        with patch("cogito.chat.research_target", return_value=[{"id": "mem_test"}]) as research:
+        receipt = {
+            "target": "@me",
+            "query": "https://example.com/me",
+            "seed_urls": ["https://example.com/me"],
+            "discovered_urls": ["https://example.com/me"],
+            "scanned_sources": [{"url": "https://example.com/me", "chars": 120, "preview": "Example"}],
+            "failed_sources": [],
+            "saved_chunks": [
+                {
+                    "store": "user_memory",
+                    "id": "mem_test",
+                    "source_url": "https://example.com/me",
+                    "preview": "Example saved chunk",
+                }
+            ],
+        }
+
+        with patch("cogito.chat.research_target_with_receipt", return_value=receipt) as research:
             run_chat(conn, execute=False, input_stream=input_stream, output_stream=output_stream)
 
         research.assert_called_once_with(conn, target="@me", source="https://example.com/me")
-        self.assertIn("Research saved: 1 chunks", output_stream.getvalue())
+        self.assertIn("Scanned sources:", output_stream.getvalue())
+        self.assertIn("Saved chunks: 1", output_stream.getvalue())
 
 
 if __name__ == "__main__":

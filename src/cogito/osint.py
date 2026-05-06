@@ -67,9 +67,21 @@ def research_target(
     source: str,
     limit: int = 8,
 ) -> list[dict[str, Any]]:
+    return research_target_with_receipt(conn, target=target, source=source, limit=limit)["created"]
+
+
+def research_target_with_receipt(
+    conn: sqlite3.Connection,
+    *,
+    target: str,
+    source: str,
+    limit: int = 8,
+) -> dict[str, Any]:
     target_name = target.removeprefix("@")
-    documents = collect_osint_documents(source, limit=limit)
+    collection = collect_osint_documents(source, limit=limit)
+    documents = collection["documents"]
     created: list[dict[str, Any]] = []
+    saved_chunks: list[dict[str, str]] = []
     seen = existing_texts(conn, target_name)
     for document in documents:
         for chunk in chunk_text(document["text"], max_chars=700)[:3]:
@@ -92,29 +104,47 @@ def research_target(
                 except Exception:
                     pass
                 created.append(memory)
-            else:
-                created.append(
-                    add_persona_knowledge(
-                        conn,
-                        persona_name=target_name,
-                        text=chunk,
-                        knowledge_type="public_research",
-                        source_url=document["url"],
-                        confidence=0.65,
-                    )
+                saved_chunks.append(
+                    {
+                        "store": "user_memory",
+                        "id": memory["id"],
+                        "source_url": document["url"],
+                        "preview": preview_text(chunk),
+                    }
                 )
-    return created
+            else:
+                item = add_persona_knowledge(
+                    conn,
+                    persona_name=target_name,
+                    text=chunk,
+                    knowledge_type="public_research",
+                    source_url=document["url"],
+                    confidence=0.65,
+                )
+                created.append(item)
+                saved_chunks.append(
+                    {
+                        "store": "persona_rag",
+                        "id": item["id"],
+                        "source_url": document["url"],
+                        "preview": preview_text(chunk),
+                    }
+                )
+    return collection | {"target": target, "created": created, "saved_chunks": saved_chunks}
 
 
-def collect_osint_documents(source: str, *, limit: int) -> list[dict[str, str]]:
+def collect_osint_documents(source: str, *, limit: int) -> dict[str, Any]:
     urls: list[str] = []
     if is_url(source):
         urls.append(source)
         query = query_from_url(source)
     else:
         query = source
-    urls.extend(search_web(query, limit=limit))
+    discovered = search_web(query, limit=limit)
+    urls.extend(discovered)
     documents = []
+    scanned: list[dict[str, Any]] = []
+    failed: list[dict[str, str]] = []
     seen: set[str] = set()
     for url in urls:
         if url in seen:
@@ -122,13 +152,25 @@ def collect_osint_documents(source: str, *, limit: int) -> list[dict[str, str]]:
         seen.add(url)
         try:
             text = fetch_readable_text(url)
-        except Exception:
+        except Exception as exc:
+            failed.append({"url": url, "error": str(exc)})
             continue
         if text:
-            documents.append({"url": url, "text": text})
+            document = {"url": url, "text": text}
+            documents.append(document)
+            scanned.append({"url": url, "chars": len(text), "preview": preview_text(text)})
+        else:
+            failed.append({"url": url, "error": "no readable text"})
         if len(documents) >= limit:
             break
-    return documents
+    return {
+        "query": query,
+        "seed_urls": [source] if is_url(source) else [],
+        "discovered_urls": discovered,
+        "scanned_sources": scanned,
+        "failed_sources": failed,
+        "documents": documents,
+    }
 
 
 def search_web(query: str, *, limit: int) -> list[str]:
@@ -212,3 +254,10 @@ def existing_texts(conn: sqlite3.Connection, target_name: str) -> set[str]:
 
 def normalize_text(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip().lower()
+
+
+def preview_text(value: str, *, max_chars: int = 160) -> str:
+    text = re.sub(r"\s+", " ", value).strip()
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 3] + "..."
