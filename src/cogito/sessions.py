@@ -12,17 +12,18 @@ from .local_extractor import extract_with_model
 from .memory import add_event, add_memory, context_pack
 from .embeddings import ensure_memory_embedding
 from .policy import ContextRequest
-from .settings import get_memory_model
+from .settings import get_chat_model, get_memory_model
 
 
-SUPPORTED_AGENTS = ["codex", "codex-exec", "claude", "opencode"]
+SUPPORTED_AGENTS = ["local", "codex", "codex-exec", "claude", "opencode"]
+EXTERNAL_AGENTS = ["codex", "codex-exec", "claude", "opencode"]
 
 
 def create_session(
     conn: sqlite3.Connection,
     *,
     title: str,
-    agent: str = "codex",
+    agent: str = "local",
     lens: str = "coding",
     max_sensitivity: str = "professional",
     cwd: str | None = None,
@@ -124,6 +125,9 @@ def ask_session(
     session = get_session(conn, session_id)
     selected_agent = agent or session["active_agent"]
     validate_agent(selected_agent)
+    selected_model = model
+    if selected_agent == "local" and selected_model is None:
+        selected_model = get_chat_model(conn)
     if selected_agent != session["active_agent"]:
         session = set_session_agent(conn, session_id=session_id, agent=selected_agent)
     request = ContextRequest(
@@ -159,7 +163,7 @@ def ask_session(
     exit_code = None
     output = ""
     if execute:
-        result = run_agent_capture(selected_agent, prompt, stream=stream, yolo=yolo, model=model)
+        result = run_agent_capture(selected_agent, prompt, stream=stream, yolo=yolo, model=selected_model)
         exit_code = int(result["exit_code"])
         output = str(result["output"])
         if output and not stream:

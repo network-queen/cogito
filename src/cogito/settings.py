@@ -5,6 +5,7 @@ import sqlite3
 
 DEFAULT_MEMORY_MODEL = "ollama:qwen3:0.6b"
 DEFAULT_EMBEDDING_MODEL = "ollama:nomic-embed-text"
+DEFAULT_CHAT_MODEL = "ollama:qwen3:0.6b"
 
 
 def get_setting(conn: sqlite3.Connection, key: str, default: str | None = None) -> str | None:
@@ -43,6 +44,14 @@ def set_embedding_model(conn: sqlite3.Connection, value: str) -> str:
     return set_setting(conn, "embedding_model", normalize_memory_model(value))
 
 
+def get_chat_model(conn: sqlite3.Connection) -> str:
+    return get_setting(conn, "chat_model", DEFAULT_CHAT_MODEL) or DEFAULT_CHAT_MODEL
+
+
+def set_chat_model(conn: sqlite3.Connection, value: str) -> str:
+    return set_setting(conn, "chat_model", normalize_chat_model(value))
+
+
 def normalize_memory_model(value: str) -> str:
     model = value.strip()
     if not model:
@@ -51,6 +60,17 @@ def normalize_memory_model(value: str) -> str:
         return model
     if ":" not in model:
         return f"ollama:{model}"
+    if model.startswith("hf:"):
+        return model
+    if model.startswith("ollama:"):
+        return model
+    return f"ollama:{model}"
+
+
+def normalize_chat_model(value: str) -> str:
+    model = value.strip()
+    if not model:
+        return DEFAULT_CHAT_MODEL
     if model.startswith("hf:"):
         return model
     if model.startswith("ollama:"):

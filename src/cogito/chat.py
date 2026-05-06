@@ -6,18 +6,26 @@ from typing import TextIO
 
 from .memory import list_memories
 from .personas import add_persona, delete_persona, get_persona, list_personas, maybe_extract_persona_call
-from .settings import get_embedding_model, get_memory_model, set_embedding_model, set_memory_model
+from .settings import (
+    get_chat_model,
+    get_embedding_model,
+    get_memory_model,
+    set_chat_model,
+    set_embedding_model,
+    set_memory_model,
+)
 from .sessions import ask_session, create_session, get_session, process_pending_memory_jobs, set_session_agent
 
 
 COMMAND_HELP = [
-    ("/tool codex|claude|opencode", "switch underlying tool"),
+    ("/tool local|codex|claude|opencode", "switch underlying tool"),
     ("/persona add NAME AGENT MODEL DESCRIPTION", "create persona"),
     ("/persona list", "list personas"),
     ("/persona use NAME", "set active persona"),
     ("/persona show NAME", "show persona"),
     ("/persona delete NAME", "delete persona"),
     ("/persona clear", "clear active persona"),
+    ("/chat-model [MODEL]", "show or change default local chat model"),
     ("/memory-model [MODEL]", "show or change memory extractor"),
     ("/embedding-model [MODEL]", "show or change relevance embeddings"),
     ("/memories", "show memories"),
@@ -28,6 +36,8 @@ COMMAND_HELP = [
 ]
 
 COMMAND_EXAMPLES = [
+    "/chat-model qwen3:0.6b",
+    "/tool local",
     "/tool claude",
     "/persona add architect codex gpt-5.5 Senior pragmatic software architect.",
     "/persona use architect",
@@ -40,7 +50,7 @@ COMMAND_EXAMPLES = [
 def run_chat(
     conn: sqlite3.Connection,
     *,
-    agent: str = "codex",
+    agent: str = "local",
     session_id: str | None = None,
     title: str = "Cogito chat",
     lens: str = "coding",
@@ -64,7 +74,7 @@ def run_chat(
         setup_autocomplete(conn)
     if verbose:
         write(output_stream, f"Cogito chat. Session: {session['id']}. Tool: {session['active_agent']}.")
-        write(output_stream, "Commands: /tool, /persona, /memory-model, /memories, /session, /help, /exit")
+        write(output_stream, "Commands: /tool, /persona, /chat-model, /memory-model, /memories, /session, /help, /exit")
 
     while True:
         try:
@@ -165,12 +175,19 @@ def handle_command(
         return True, session, active_persona
     if name == "/tool":
         if len(parts) != 2:
-            write(output_stream, "Usage: /tool codex|claude|opencode")
+            write(output_stream, "Usage: /tool local|codex|claude|opencode")
             return True, session, active_persona
         updated = set_session_agent(conn, session_id=session["id"], agent=parts[1])
         if verbose:
             write(output_stream, f"Tool: {updated['active_agent']}")
         return True, updated, active_persona
+    if name == "/chat-model":
+        if len(parts) == 1:
+            write(output_stream, f"Chat model: {get_chat_model(conn)}")
+            return True, session, active_persona
+        model = set_chat_model(conn, " ".join(parts[1:]))
+        write(output_stream, f"Chat model: {model}")
+        return True, session, active_persona
     if name == "/persona":
         return handle_persona_command(
             conn,
@@ -346,6 +363,7 @@ def setup_autocomplete(conn: sqlite3.Connection) -> None:
         "/persona use",
         "/tool claude",
         "/tool codex",
+        "/tool local",
         "/tool opencode",
         "/verbose off",
         "/verbose on",
@@ -410,6 +428,10 @@ class CogitoCompleter(PromptToolkitCompleter):
         text = document.text_before_cursor
         for value, meta, start_position in prompt_completions(self.conn, text):
             yield Completion(value, start_position=start_position, display=value, display_meta=meta)
+
+    async def get_completions_async(self, document, complete_event):
+        for completion in self.get_completions(document, complete_event):
+            yield completion
 
 
 def prompt_completions(conn: sqlite3.Connection, text: str) -> list[tuple[str, str, int]]:

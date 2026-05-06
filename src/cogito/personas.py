@@ -7,7 +7,7 @@ from .db import row_to_dict, rows_to_dicts
 from .ids import new_id
 
 
-SUPPORTED_PERSONA_AGENTS = {"codex", "codex-exec", "claude", "opencode"}
+SUPPORTED_PERSONA_AGENTS = {"local", "codex", "codex-exec", "claude", "opencode"}
 
 
 def add_persona(
@@ -79,4 +79,3 @@ def validate_persona_name(name: str) -> None:
     cleaned = name.replace("-", "").replace("_", "")
     if not cleaned or not cleaned.isalnum():
         raise ValueError("persona name must contain only letters, numbers, '-' or '_'")
-

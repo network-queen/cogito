@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
-from cogito.agent_bridge import build_agent_command, build_enriched_prompt, extract_final_answer
+from cogito.agent_bridge import build_agent_command, build_enriched_prompt, extract_final_answer, run_agent_capture
 
 
 class AgentBridgeTests(unittest.TestCase):
@@ -38,6 +39,14 @@ tokens used
 """
 
         self.assertEqual(extract_final_answer(raw), "I am fine.")
+
+    def test_local_agent_uses_ollama_without_external_command(self):
+        with patch("cogito.agent_bridge.ollama_chat_generate", return_value="local answer") as generate:
+            result = run_agent_capture("local", "hello", stream=False, model="qwen3:0.6b")
+
+        self.assertEqual(result["exit_code"], 0)
+        self.assertEqual(result["output"], "local answer")
+        generate.assert_called_once_with("qwen3:0.6b", "hello")
 
 
 if __name__ == "__main__":

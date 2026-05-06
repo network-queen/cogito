@@ -6,11 +6,15 @@ import sys
 import tempfile
 from pathlib import Path
 
+from .local_extractor import ollama_chat_generate
 from .memory import context_pack
 from .policy import ContextRequest
+from .settings import DEFAULT_CHAT_MODEL, normalize_chat_model
 
 
 def build_agent_command(agent: str, prompt: str, *, yolo: bool = False, model: str | None = None) -> list[str]:
+    if agent == "local":
+        raise ValueError("local agent runs through Ollama, not an external command")
     if agent in {"codex", "codex-exec"}:
         command = ["codex", "exec"]
         if yolo:
@@ -67,6 +71,13 @@ def run_agent_capture(
     yolo: bool = False,
     model: str | None = None,
 ) -> dict[str, str | int]:
+    if agent == "local":
+        output = run_local_model(prompt, model=model)
+        if stream and output:
+            sys.stdout.write(output + "\n")
+            sys.stdout.flush()
+        return {"exit_code": 0, "output": output}
+
     command = build_agent_command(agent, prompt, yolo=yolo, model=model)
     binary = command[0]
     if shutil.which(binary) is None:
@@ -107,6 +118,15 @@ def run_agent_quiet(agent: str, command: list[str]) -> dict[str, str | int]:
     completed = subprocess.run(command, text=True, capture_output=True, check=False)
     raw_output = "".join(part for part in (completed.stdout, completed.stderr) if part)
     return {"exit_code": completed.returncode, "output": extract_final_answer(raw_output)}
+
+
+def run_local_model(prompt: str, *, model: str | None = None) -> str:
+    model_spec = normalize_chat_model(model or DEFAULT_CHAT_MODEL)
+    if model_spec.startswith("ollama:"):
+        return ollama_chat_generate(model_spec.removeprefix("ollama:"), prompt)
+    if model_spec.startswith("hf:"):
+        raise RuntimeError("local hf chat models are not installed yet; use an ollama: model")
+    raise RuntimeError(f"unsupported local chat model: {model_spec}")
 
 
 def extract_final_answer(output: str) -> str:

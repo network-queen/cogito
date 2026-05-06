@@ -102,6 +102,20 @@ def ollama_generate(model: str, prompt: str) -> str:
     return str(payload.get("response", "[]"))
 
 
+def ollama_chat_generate(model: str, prompt: str) -> str:
+    ensure_ollama(model)
+    payload = request_json(
+        "/api/generate",
+        {
+            "model": model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"temperature": 0.2},
+        },
+    )
+    return str(payload.get("response", "")).strip()
+
+
 def ollama_embed(model: str, text: str) -> list[float]:
     ensure_ollama(model)
     payload = request_json(

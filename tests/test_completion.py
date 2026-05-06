@@ -3,7 +3,14 @@ from __future__ import annotations
 import io
 import unittest
 
-from cogito.chat import command_matches, completion_options, prompt_completions, show_help, show_command_matches
+from cogito.chat import (
+    CogitoCompleter,
+    command_matches,
+    completion_options,
+    prompt_completions,
+    show_command_matches,
+    show_help,
+)
 from cogito.db import connect
 from cogito.memory import ensure_db
 from cogito.personas import add_persona
@@ -34,7 +41,7 @@ class CompletionTests(unittest.TestCase):
 
         commands = [command for command, _ in matches]
         self.assertIn("/persona add NAME AGENT MODEL DESCRIPTION", commands)
-        self.assertNotIn("/tool codex|claude|opencode", commands)
+        self.assertNotIn("/tool local|codex|claude|opencode", commands)
 
     def test_command_match_output_prints_options(self):
         output = io.StringIO()
@@ -51,6 +58,12 @@ class CompletionTests(unittest.TestCase):
 
         self.assertIn("Commands", output.getvalue())
         self.assertIn("Examples", output.getvalue())
+
+    def test_prompt_toolkit_completer_supports_async_api(self):
+        conn = connect(":memory:")
+        ensure_db(conn)
+
+        self.assertTrue(hasattr(CogitoCompleter(conn), "get_completions_async"))
 
 
 if __name__ == "__main__":

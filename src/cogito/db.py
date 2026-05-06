@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   title TEXT NOT NULL,
   cwd TEXT NOT NULL,
   summary TEXT NOT NULL DEFAULT '',
-  active_agent TEXT NOT NULL DEFAULT 'codex',
+  active_agent TEXT NOT NULL DEFAULT 'local',
   lens TEXT NOT NULL DEFAULT 'coding',
   max_sensitivity TEXT NOT NULL DEFAULT 'professional',
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,

@@ -38,21 +38,25 @@ Run an agent with Cogito context prepended:
 ```sh
 cogito
 cogito chat
+cogito ask local "talk to the default local model"
 cogito ask codex "help me design the next Cogito feature"
 cogito ask claude "summarize what this project does"
 cogito ask opencode "inspect this repo"
 ```
 
-Inside `cogito chat`:
+Inside `cogito chat`, normal turns go to the local Ollama model. Use `@persona` or `/tool` when you want Codex, Claude Code, or opencode:
 
 ```text
-cogito[codex]> review this repo
-cogito[codex]> /tool claude
-cogito[claude]> explain the tradeoffs
-cogito[claude]> /memory-model
-cogito[claude]> /memory-model qwen3:1.7b
-cogito[claude]> /memories
-cogito[claude]> /exit
+> think through this idea with me
+> @architect review this repo
+> /tool claude
+> explain the tradeoffs
+> /chat-model
+> /chat-model qwen3:1.7b
+> /memory-model
+> /memory-model qwen3:1.7b
+> /memories
+> /exit
 ```
 
 By default, chat hides Cogito metadata. Use verbose mode when you want command confirmations and session details:
@@ -77,16 +81,22 @@ cogito chat --yolo
 Create personas:
 
 ```text
-cogito[codex]> /persona add architect codex gpt-5.5 Senior pragmatic software architect.
-cogito[codex]> /persona add explainer claude sonnet Patient teacher who explains tradeoffs.
-cogito[codex]> @architect review this design
-cogito[codex]> @explainer explain what architect suggested
+> /persona add architect codex gpt-5.5 Senior pragmatic software architect.
+> /persona add explainer claude sonnet Patient teacher who explains tradeoffs.
+> @architect review this design
+> @explainer explain what architect suggested
 ```
 
 Slash commands and `@persona` names autocomplete with Tab in an interactive terminal.
 Typing `/` or `/per` and pressing Enter shows matching commands. `/help` shows full command reference. Prompts, personas, and metadata lists use terminal colors.
 
 Default memory extractor:
+
+```text
+ollama:qwen3:0.6b
+```
+
+Default local chat model:
 
 ```text
 ollama:qwen3:0.6b
@@ -99,7 +109,7 @@ ollama:nomic-embed-text
 ```
 
 Cogito auto-starts Ollama and pulls these models when possible. If Ollama is unavailable, memory extraction and retrieval fall back to local heuristics.
-During chat, memory extraction runs silently in the background through a durable SQLite job queue. User prompts are routed to the selected agent without waiting for the memory model.
+During chat, memory extraction runs silently in the background through a durable SQLite job queue. Plain user prompts are routed to the local chat model by default without waiting for the memory model. `@persona` routes a single turn to that persona's configured tool/model.
 
 Docker Compose runs the local model service:
 
@@ -113,6 +123,7 @@ Keep one Cogito session while switching tools:
 
 ```sh
 cogito session new --title "Cogito build" --agent codex
+cogito session ask <session-id> --agent local "think locally"
 cogito session ask <session-id> --agent codex "review the current architecture"
 cogito session ask <session-id> --agent claude "explain the tradeoffs"
 cogito session ask <session-id> --agent opencode "inspect implementation gaps"

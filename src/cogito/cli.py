@@ -20,8 +20,15 @@ from .memory import (
     search_memories,
 )
 from .policy import ContextRequest
-from .settings import get_embedding_model, get_memory_model, set_embedding_model, set_memory_model
-from .sessions import ask_session, create_session, list_sessions, set_session_agent
+from .settings import (
+    get_chat_model,
+    get_embedding_model,
+    get_memory_model,
+    set_chat_model,
+    set_embedding_model,
+    set_memory_model,
+)
+from .sessions import SUPPORTED_AGENTS, ask_session, create_session, list_sessions, set_session_agent
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -86,7 +93,7 @@ def build_parser() -> argparse.ArgumentParser:
     prompt.set_defaults(func=cmd_prompt)
 
     ask = sub.add_parser("ask", help="Run an agent with Cogito context prepended to your prompt")
-    ask.add_argument("agent", choices=["codex", "codex-exec", "claude", "opencode"])
+    ask.add_argument("agent", choices=SUPPORTED_AGENTS)
     ask.add_argument("query")
     add_policy_args(ask)
     ask.add_argument("--limit", type=int, default=8)
@@ -94,7 +101,7 @@ def build_parser() -> argparse.ArgumentParser:
     ask.set_defaults(func=cmd_ask)
 
     run = sub.add_parser("run", help="Start or continue a Cogito-owned session with selected agent")
-    run.add_argument("agent", choices=["codex", "codex-exec", "claude", "opencode"])
+    run.add_argument("agent", choices=SUPPORTED_AGENTS)
     run.add_argument("query")
     run.add_argument("--session", help="Existing session id. Creates a session when omitted.")
     run.add_argument("--title", help="Title for new session")
@@ -106,7 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.set_defaults(func=cmd_run)
 
     chat = sub.add_parser("chat", help="Enter a Cogito terminal chat that routes turns to selected agent")
-    chat.add_argument("--agent", default="codex", choices=["codex", "claude", "opencode"])
+    chat.add_argument("--agent", default="local", choices=SUPPORTED_AGENTS)
     chat.add_argument("--session", help="Existing session id")
     chat.add_argument("--title", default="Cogito chat")
     chat.add_argument("--lens", default="coding")
@@ -116,6 +123,10 @@ def build_parser() -> argparse.ArgumentParser:
     chat.add_argument("--yolo", action="store_true", help="Bypass underlying agent permission prompts where supported")
     chat.add_argument("--verbose", action="store_true", help="Show Cogito metadata and command confirmations")
     chat.set_defaults(func=cmd_chat)
+
+    chat_model = sub.add_parser("chat-model", help="Show or change local model used for default chat")
+    chat_model.add_argument("model", nargs="?", help="Example: qwen3:0.6b or ollama:llama3.2")
+    chat_model.set_defaults(func=cmd_chat_model)
 
     memory_model = sub.add_parser("memory-model", help="Show or change local model used for memory extraction")
     memory_model.add_argument("model", nargs="?", help="Example: qwen3:0.6b or ollama:qwen3:1.7b")
@@ -129,7 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
     session_sub = session.add_subparsers(required=True)
     session_new = session_sub.add_parser("new", help="Create a session")
     session_new.add_argument("--title", default="Untitled Cogito session")
-    session_new.add_argument("--agent", default="codex", choices=["codex", "codex-exec", "claude", "opencode"])
+    session_new.add_argument("--agent", default="local", choices=SUPPORTED_AGENTS)
     session_new.add_argument("--lens", default="coding")
     session_new.add_argument("--max-sensitivity", default="professional")
     session_new.set_defaults(func=cmd_session_new)
@@ -138,12 +149,12 @@ def build_parser() -> argparse.ArgumentParser:
     session_list.set_defaults(func=cmd_session_list)
     session_tool = session_sub.add_parser("tool", help="Change session active agent")
     session_tool.add_argument("session_id")
-    session_tool.add_argument("agent", choices=["codex", "codex-exec", "claude", "opencode"])
+    session_tool.add_argument("agent", choices=SUPPORTED_AGENTS)
     session_tool.set_defaults(func=cmd_session_tool)
     session_ask = session_sub.add_parser("ask", help="Ask within existing session")
     session_ask.add_argument("session_id")
     session_ask.add_argument("query")
-    session_ask.add_argument("--agent", choices=["codex", "codex-exec", "claude", "opencode"])
+    session_ask.add_argument("--agent", choices=SUPPORTED_AGENTS)
     session_ask.add_argument("--limit", type=int, default=8)
     session_ask.add_argument("--print-prompt", action="store_true")
     session_ask.set_defaults(func=cmd_session_ask)
@@ -296,6 +307,14 @@ def cmd_chat(conn, args: argparse.Namespace) -> int:
         yolo=args.yolo,
         verbose=args.verbose,
     )
+
+
+def cmd_chat_model(conn, args: argparse.Namespace) -> int:
+    if args.model:
+        print(set_chat_model(conn, args.model))
+    else:
+        print(get_chat_model(conn))
+    return 0
 
 
 def cmd_memory_model(conn, args: argparse.Namespace) -> int:
