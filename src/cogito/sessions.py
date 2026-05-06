@@ -4,6 +4,7 @@ import os
 import sqlite3
 import threading
 from typing import Any
+from collections.abc import Callable
 
 from .agent_bridge import build_enriched_prompt, run_agent_capture
 from .db import connect, row_to_dict, rows_to_dicts
@@ -137,6 +138,7 @@ def ask_session(
     model: str | None = None,
     persona: dict[str, Any] | None = None,
     echo_output: bool = True,
+    on_output: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     session = get_session(conn, session_id)
     selected_model = model or session.get("active_model")
@@ -179,7 +181,14 @@ def ask_session(
     exit_code = None
     output = ""
     if execute:
-        result = run_agent_capture(selected_agent, prompt, stream=stream, yolo=yolo, model=selected_model)
+        result = run_agent_capture(
+            selected_agent,
+            prompt,
+            stream=stream,
+            yolo=yolo,
+            model=selected_model,
+            on_output=on_output,
+        )
         exit_code = int(result["exit_code"])
         output = str(result["output"])
         if output and not stream and echo_output:

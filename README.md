@@ -61,6 +61,13 @@ Inside `cogito chat`, normal turns go to the active model. Cogito infers the nee
 > /exit
 ```
 
+Interactive terminals use a split TUI:
+
+- Left pane: Cogito conversation and command input.
+- Right pane: recent persona calls, status, and live underlying adapter output.
+- `@persona ...` calls are queued in the background, so the left pane remains usable.
+- Calls to the same persona are processed by that persona's Cogito worker in order.
+
 By default, chat hides Cogito metadata. Use verbose mode when you want command confirmations and session details:
 
 ```sh

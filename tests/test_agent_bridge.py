@@ -48,6 +48,14 @@ tokens used
         self.assertEqual(result["output"], "local answer")
         generate.assert_called_once_with("qwen3:0.6b", "hello")
 
+    def test_local_agent_sends_output_to_callback(self):
+        chunks = []
+        with patch("cogito.agent_bridge.ollama_chat_generate", return_value="local answer"):
+            result = run_agent_capture("local", "hello", stream=True, model="qwen3:0.6b", on_output=chunks.append)
+
+        self.assertEqual(result["exit_code"], 0)
+        self.assertEqual(chunks, ["local answer\n"])
+
 
 if __name__ == "__main__":
     unittest.main()

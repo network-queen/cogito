@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Callable
 
 from .local_extractor import ollama_chat_generate
 from .memory import context_pack
@@ -70,10 +71,13 @@ def run_agent_capture(
     stream: bool = True,
     yolo: bool = False,
     model: str | None = None,
+    on_output: Callable[[str], None] | None = None,
 ) -> dict[str, str | int]:
     if agent == "local":
         output = run_local_model(prompt, model=model)
-        if stream and output:
+        if on_output and output:
+            on_output(output + "\n")
+        if stream and output and on_output is None:
             sys.stdout.write(output + "\n")
             sys.stdout.flush()
         return {"exit_code": 0, "output": output}
@@ -96,8 +100,11 @@ def run_agent_capture(
     assert process.stdout is not None
     for line in process.stdout:
         output_parts.append(line)
-        sys.stdout.write(line)
-        sys.stdout.flush()
+        if on_output:
+            on_output(line)
+        if on_output is None:
+            sys.stdout.write(line)
+            sys.stdout.flush()
     return {"exit_code": process.wait(), "output": "".join(output_parts)}
 
 

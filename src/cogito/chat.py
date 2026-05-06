@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import html
+import queue
+import re
 import sqlite3
 import sys
+import threading
+import time
 from typing import TextIO
 
-from .db import default_db_path
+from .db import connect, default_db_path
 from .memory import list_memories
 from .personas import add_persona_for_model, delete_persona, get_persona, list_personas, maybe_extract_persona_call
 from .settings import (
@@ -16,7 +20,7 @@ from .settings import (
     set_embedding_model,
     set_memory_model,
 )
-from .sessions import ask_session, create_session, get_session, process_pending_memory_jobs, set_session_model
+from .sessions import ask_session, create_session, current_db_path, get_session, process_pending_memory_jobs, set_session_model
 from .tool_manager import all_models, install_for_model, model_catalog, update_for_model
 
 
@@ -84,6 +88,15 @@ def run_chat(
     )
     process_pending_memory_jobs(conn, limit=3)
     active_persona: dict | None = None
+    if interactive and execute:
+        return run_split_tui(
+            conn,
+            session=session,
+            memory_mode=memory_mode,
+            yolo=yolo,
+            verbose=verbose,
+            output_stream=output_stream,
+        )
     if input_stream is sys.stdin:
         setup_autocomplete(conn)
     if verbose:
@@ -249,6 +262,234 @@ def handle_command(
     return True, session, active_persona
 
 
+class TextSink:
+    def __init__(self, callback):
+        self.callback = callback
+
+    def write(self, text: str) -> None:
+        if text:
+            self.callback(text.rstrip("\n"))
+
+    def flush(self) -> None:
+        return None
+
+
+def run_split_tui(
+    conn: sqlite3.Connection,
+    *,
+    session: dict,
+    memory_mode: str,
+    yolo: bool,
+    verbose: bool,
+    output_stream: TextIO,
+) -> int:
+    try:
+        from prompt_toolkit import Application
+        from prompt_toolkit.formatted_text import HTML
+        from prompt_toolkit.history import FileHistory
+        from prompt_toolkit.key_binding import KeyBindings
+        from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
+        from prompt_toolkit.layout.controls import FormattedTextControl
+        from prompt_toolkit.widgets import TextArea
+    except ImportError:
+        write(output_stream, "prompt_toolkit not installed")
+        return 1
+
+    db_path = current_db_path(conn)
+    state = {
+        "session": session,
+        "active_persona": None,
+        "lines": [color("Cogito", "cyan") + " model-first chat"],
+        "jobs": [],
+        "workers": {},
+        "closed": False,
+    }
+    lock = threading.Lock()
+    app_ref = {"app": None}
+
+    def left_text():
+        with lock:
+            return "\n".join(strip_ansi(line) for line in state["lines"][-200:])
+
+    def right_text():
+        with lock:
+            if not state["jobs"]:
+                return HTML("<ansigray>No persona calls yet.</ansigray>")
+            chunks = []
+            for job in state["jobs"][-8:]:
+                status = job["status"]
+                color_name = "ansigreen" if status == "done" else "ansiyellow" if status == "running" else "ansired"
+                header = f"<{color_name}>@{html.escape(job['persona'])} {html.escape(status)}</{color_name}> <ansigray>{html.escape(job['model'])}</ansigray>"
+                body = html.escape("\n".join(job["lines"][-80:]) or "waiting...")
+                chunks.append(header + "\n" + body)
+            separator = "\n\n<ansigray>" + ("-" * 36) + "</ansigray>\n\n"
+            return HTML(separator.join(chunks))
+
+    transcript = FormattedTextControl(lambda: left_text(), focusable=False)
+    jobs = FormattedTextControl(right_text, focusable=False)
+    input_area = TextArea(
+        height=1,
+        prompt=HTML("<ansicyan>&gt;</ansicyan> "),
+        multiline=False,
+        completer=CogitoCompleter(conn),
+        complete_while_typing=True,
+        history=FileHistory(history_path()),
+    )
+    root = VSplit(
+        [
+            HSplit([Window(transcript, wrap_lines=True), input_area], width=80),
+            Window(width=1, char="|", style="class:separator"),
+            Window(jobs, wrap_lines=True, width=52),
+        ]
+    )
+    kb = KeyBindings()
+
+    def append_left(text: str) -> None:
+        with lock:
+            state["lines"].append(text)
+        if app_ref["app"]:
+            app_ref["app"].invalidate()
+
+    def append_job(job: dict, text: str) -> None:
+        with lock:
+            job["lines"].append(text.rstrip("\n"))
+        if app_ref["app"]:
+            app_ref["app"].invalidate()
+
+    def run_background_persona(persona: dict, prompt: str, routed_text: str) -> None:
+        job = {
+            "persona": persona["name"],
+            "model": persona.get("model") or "default",
+            "status": "running",
+            "lines": [f"started {time.strftime('%H:%M:%S')}", f"prompt: {routed_text}"],
+        }
+        with lock:
+            state["jobs"].append(job)
+        if app_ref["app"]:
+            app_ref["app"].invalidate()
+
+        bg_conn = None
+        try:
+            if not db_path:
+                raise RuntimeError("background persona calls need a file-backed Cogito DB")
+            bg_conn = connect(db_path)
+            result = ask_session(
+                bg_conn,
+                session_id=state["session"]["id"],
+                user_prompt=routed_text,
+                agent=persona["agent"],
+                execute=True,
+                memory_mode=memory_mode,
+                stream=True,
+                yolo=yolo or bool(persona.get("yolo")),
+                model=persona.get("model"),
+                persona=persona,
+                echo_output=False,
+                on_output=lambda line: append_job(job, line),
+            )
+            with lock:
+                job["status"] = "done" if result["exit_code"] == 0 else f"exit {result['exit_code']}"
+                state["session"] = result["session"]
+        except Exception as exc:
+            append_job(job, f"error: {exc}")
+            with lock:
+                job["status"] = "error"
+        finally:
+            if bg_conn is not None:
+                bg_conn.close()
+            if app_ref["app"]:
+                app_ref["app"].invalidate()
+
+    def persona_worker(persona: dict, work_queue: queue.Queue) -> None:
+        while True:
+            prompt, routed_text = work_queue.get()
+            if prompt is None:
+                return
+            try:
+                run_background_persona(persona, prompt, routed_text)
+            finally:
+                work_queue.task_done()
+
+    def enqueue_persona(persona: dict, prompt: str, routed_text: str) -> None:
+        name = persona["name"]
+        with lock:
+            worker = state["workers"].get(name)
+            if worker is None:
+                work_queue: queue.Queue = queue.Queue()
+                thread = threading.Thread(target=persona_worker, args=(persona, work_queue), daemon=True)
+                worker = {"queue": work_queue, "thread": thread}
+                state["workers"][name] = worker
+                thread.start()
+            worker["queue"].put((prompt, routed_text))
+
+    def submit() -> None:
+        text = input_area.text.strip()
+        input_area.text = ""
+        if not text:
+            return
+        append_left(color("> " + text, "cyan"))
+        if text.startswith("/"):
+            if not is_known_command(text):
+                sink = TextSink(append_left)
+                show_command_matches(sink, text)
+                return
+            sink = TextSink(append_left)
+            keep_going, new_session, active_persona = handle_command(
+                conn,
+                text,
+                session=state["session"],
+                active_persona=state["active_persona"],
+                output_stream=sink,
+                verbose=True,
+            )
+            state["session"] = new_session
+            state["active_persona"] = active_persona
+            if not keep_going:
+                state["closed"] = True
+                if app_ref["app"]:
+                    app_ref["app"].exit()
+            return
+        called_persona, routed_text = maybe_extract_persona_call(conn, text)
+        turn_persona = called_persona or state["active_persona"]
+        if turn_persona:
+            append_left(muted(f"queued @{turn_persona['name']}"))
+            enqueue_persona(turn_persona, text, routed_text)
+            return
+        try:
+            result = ask_session(
+                conn,
+                session_id=state["session"]["id"],
+                user_prompt=text,
+                execute=True,
+                memory_mode=memory_mode,
+                stream=False,
+                yolo=yolo,
+                echo_output=False,
+            )
+            state["session"] = result["session"]
+            if result["output"]:
+                append_left(color(result["output"].rstrip(), "green"))
+        except Exception as exc:
+            append_left(color(f"error: {exc}", "red"))
+
+    @kb.add("enter")
+    def _submit(event):
+        submit()
+
+    @kb.add("c-c")
+    def _interrupt(event):
+        input_area.text = ""
+
+    @kb.add("c-d")
+    def _exit(event):
+        event.app.exit()
+
+    app = Application(layout=Layout(root, focused_element=input_area), key_bindings=kb, full_screen=True)
+    app_ref["app"] = app
+    app.run()
+    return 0
+
+
 def handle_persona_command(
     conn: sqlite3.Connection,
     parts: list[str],
@@ -388,6 +629,10 @@ def color(text: str, name: str) -> str:
 
 def muted(text: str) -> str:
     return color(text, "gray")
+
+
+def strip_ansi(text: str) -> str:
+    return re.sub(r"\033\[[0-9;]*m", "", text)
 
 
 def setup_autocomplete(conn: sqlite3.Connection) -> None:
