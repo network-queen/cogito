@@ -329,6 +329,10 @@ def run_split_tui(
 
     transcript = FormattedTextControl(lambda: left_text(), focusable=False)
     jobs = FormattedTextControl(right_text, focusable=False)
+    hint = FormattedTextControl(
+        lambda: HTML(f"<ansigray>{html.escape(get_instruction_hint(input_area.text))}</ansigray>"),
+        focusable=False,
+    )
     input_area = TextArea(
         height=1,
         prompt=HTML("<ansicyan>&gt;</ansicyan> "),
@@ -339,7 +343,7 @@ def run_split_tui(
     )
     root = VSplit(
         [
-            HSplit([Window(transcript, wrap_lines=True), input_area], width=80),
+            HSplit([Window(transcript, wrap_lines=True), Window(hint, height=1), input_area], width=80),
             Window(width=1, char="|", style="class:separator"),
             Window(jobs, wrap_lines=True, width=52),
         ]
@@ -494,8 +498,34 @@ def run_split_tui(
         except Exception as exc:
             append_left(color(f"error: {exc}", "red"))
 
+    def accept_completion_if_open() -> bool:
+        buffer = input_area.buffer
+        state = buffer.complete_state
+        if not state or not state.current_completion:
+            return False
+        buffer.apply_completion(state.current_completion)
+        return True
+
+    @kb.add("tab")
+    def _complete_next(event):
+        buffer = input_area.buffer
+        if buffer.complete_state:
+            buffer.complete_next()
+        else:
+            buffer.start_completion(select_first=True)
+
+    @kb.add("s-tab")
+    def _complete_previous(event):
+        buffer = input_area.buffer
+        if buffer.complete_state:
+            buffer.complete_previous()
+        else:
+            buffer.start_completion(select_first=True)
+
     @kb.add("enter")
     def _submit(event):
+        if accept_completion_if_open():
+            return
         submit()
 
     @kb.add("c-c")
