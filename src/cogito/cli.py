@@ -30,6 +30,7 @@ from .settings import (
 )
 from .sessions import SUPPORTED_AGENTS, ask_session, create_session, list_sessions, set_session_agent, set_session_model
 from .tool_manager import ensure_adapter_for_model, install_for_model, model_catalog, update_for_model
+from .web_ui import run_web_ui
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -128,6 +129,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     models = sub.add_parser("models", help="List detected models from installed adapters")
     models.set_defaults(func=cmd_models)
+
+    web = sub.add_parser("web", help="Run local browser UI")
+    web.add_argument("--host", default="127.0.0.1")
+    web.add_argument("--port", type=int, default=8765)
+    web.add_argument("--no-open", action="store_true", help="Do not open the browser automatically")
+    web.set_defaults(func=cmd_web)
 
     install = sub.add_parser("install", help="Install the adapter needed for MODEL")
     install.add_argument("model")
@@ -336,6 +343,10 @@ def cmd_chat(conn, args: argparse.Namespace) -> int:
 def cmd_models(conn, args: argparse.Namespace) -> int:
     print(json.dumps(model_catalog(), indent=2, sort_keys=True))
     return 0
+
+
+def cmd_web(conn, args: argparse.Namespace) -> int:
+    return run_web_ui(conn, host=args.host, port=args.port, open_browser=not args.no_open)
 
 
 def cmd_install(conn, args: argparse.Namespace) -> int:

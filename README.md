@@ -109,6 +109,14 @@ Use `/research @TARGET URL_OR_QUERY` to enrich `@me` or any persona from open we
 
 Use `/research-browser @TARGET URL_OR_QUERY` when a page needs your logged-in browser, such as LinkedIn. Cogito opens a persistent local browser profile at `~/.local/share/cogito/browser-profile`; log in there once, then rerun the command. It extracts visible page text from that browser session and stores it into the same memory/RAG stores.
 
+Run the browser UI:
+
+```sh
+cogito web
+```
+
+The local UI opens at `http://127.0.0.1:8765`. It can create personas, scan OSINT sources for `@me` or any persona, show scanned source previews for approval, save only approved sources into memory/RAG, and reject bad facts after they are saved.
+
 Slash commands and `@persona` names autocomplete with Tab in an interactive terminal.
 Typing `/` or `/per` and pressing Enter shows matching commands. `/help` shows full command reference. Prompts, personas, and metadata lists use terminal colors. Up and Down traverse a shared history file at `~/.local/share/cogito/history`, so previous prompts are available after restarting Cogito.
 

@@ -61,6 +61,15 @@ def list_persona_knowledge(conn: sqlite3.Connection, *, persona_name: str) -> li
     return rows_to_dicts(rows)
 
 
+def delete_persona_knowledge(conn: sqlite3.Connection, item_id: str) -> dict[str, Any]:
+    conn.execute(
+        "UPDATE persona_knowledge SET state = 'deleted', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (item_id,),
+    )
+    conn.commit()
+    return get_persona_knowledge(conn, item_id)
+
+
 def search_persona_knowledge(
     conn: sqlite3.Connection,
     *,
