@@ -37,6 +37,10 @@ def build_agent_command(agent: str, prompt: str, *, yolo: bool = False, model: s
 
 def build_enriched_prompt(context: str, user_prompt: str) -> str:
     return f"""Use this Cogito user context if relevant. Respect access policy.
+Cogito stores and extracts user memories silently outside this agent call.
+Do not claim that you saved, failed to save, attempted to save, or cancelled memory writes.
+Do not call Cogito memory tools unless the user explicitly asks you to inspect, list, delete, or explain memory.
+Answer only the user's request.
 
 {context}
 

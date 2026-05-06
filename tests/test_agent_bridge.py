@@ -12,6 +12,7 @@ class AgentBridgeTests(unittest.TestCase):
         self.assertIn("Lens: coding", prompt)
         self.assertIn("Fix tests", prompt)
         self.assertIn("Respect access policy", prompt)
+        self.assertIn("Do not claim that you saved", prompt)
 
     def test_yolo_flags_are_forwarded(self):
         codex = build_agent_command("codex", "do it", yolo=True, model="gpt-5.5")
