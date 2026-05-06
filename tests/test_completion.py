@@ -7,6 +7,7 @@ from cogito.chat import (
     CogitoCompleter,
     command_matches,
     completion_options,
+    get_instruction_hint,
     prompt_completions,
     show_command_matches,
     show_help,
@@ -27,6 +28,7 @@ class CompletionTests(unittest.TestCase):
         self.assertIn("/verbose on", completion_options(conn, "/ver", "/ver", commands))
         self.assertIn("@architect ", completion_options(conn, "@ar", "@ar", commands))
         self.assertIn("architect", completion_options(conn, "/persona use ar", "ar", commands))
+        self.assertIn("codex", completion_options(conn, "/persona add boo co", "co", commands))
 
     def test_prompt_completions_include_metadata(self):
         conn = connect(":memory:")
@@ -47,6 +49,17 @@ class CompletionTests(unittest.TestCase):
             ("/tool local|codex|claude|opencode", "/tool local|codex|claude|opencode", "switch underlying tool", -3),
             completions,
         )
+
+    def test_prompt_argument_completions_and_hints(self):
+        conn = connect(":memory:")
+        ensure_db(conn)
+
+        self.assertIn(("codex ", "codex", "agent", 0), prompt_completions(conn, "/tool "))
+        self.assertIn(("codex ", "codex", "agent", -2), prompt_completions(conn, "/persona add boo co"))
+        self.assertIn(("gpt-5.5 ", "gpt-5.5", "model; use - for default", 0), prompt_completions(conn, "/persona add boo codex "))
+        self.assertEqual(get_instruction_hint("/persona add"), "next: NAME AGENT MODEL DESCRIPTION")
+        self.assertEqual(get_instruction_hint("/persona add boo"), "next: AGENT MODEL DESCRIPTION")
+        self.assertEqual(get_instruction_hint("/persona add boo codex"), "next: MODEL DESCRIPTION")
 
     def test_command_matches_filter_by_substring(self):
         matches = command_matches("/per")

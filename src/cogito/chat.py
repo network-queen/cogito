@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import sqlite3
 import sys
 from typing import TextIO
@@ -45,6 +46,14 @@ COMMAND_EXAMPLES = [
     "/memory-model qwen3:1.7b",
     "/embedding-model nomic-embed-text",
 ]
+
+AGENT_OPTIONS = ["local", "codex", "codex-exec", "claude", "opencode"]
+PERSONA_ACTIONS = ["add", "list", "use", "show", "delete", "clear"]
+VERBOSE_OPTIONS = ["on", "off"]
+CHAT_MODEL_OPTIONS = ["qwen3:0.6b", "qwen3:1.7b", "llama3.2"]
+MEMORY_MODEL_OPTIONS = ["qwen3:0.6b", "qwen3:1.7b", "heuristic", "off"]
+EMBEDDING_MODEL_OPTIONS = ["nomic-embed-text", "mxbai-embed-large", "off"]
+PERSONA_MODEL_OPTIONS = ["-", "gpt-5.5", "gpt-5.4", "sonnet", "opus", *CHAT_MODEL_OPTIONS]
 
 
 def run_chat(
@@ -396,14 +405,23 @@ def read_with_prompt_toolkit(conn: sqlite3.Connection, *, session: dict, verbose
     try:
         from prompt_toolkit import PromptSession
         from prompt_toolkit.formatted_text import HTML
+        from prompt_toolkit.application.current import get_app
     except ImportError:
         return None
 
     label = f"cogito[{session['active_agent']}]" if verbose else ">"
     prompt = HTML(f"<ansicyan>{label}</ansicyan> ")
+
+    def bottom_toolbar():
+        hint = get_instruction_hint(get_app().current_buffer.document.text_before_cursor)
+        if not hint:
+            return ""
+        return HTML(f"<ansigray>{html.escape(hint)}</ansigray>")
+
     prompt_session = PromptSession(
         completer=CogitoCompleter(conn),
         complete_while_typing=True,
+        bottom_toolbar=bottom_toolbar,
         reserve_space_for_menu=8,
     )
     return prompt_session.prompt(prompt)
@@ -441,6 +459,9 @@ def prompt_completions(conn: sqlite3.Connection, text: str) -> list[tuple[str, s
             for persona in list_personas(conn)
             if f"@{persona['name']}".startswith(text)
         ]
+    argument_completions = command_argument_completions(conn, text)
+    if argument_completions:
+        return argument_completions
     for prefix in ("/persona use ", "/persona show ", "/persona delete "):
         if text.startswith(prefix):
             fragment = text.removeprefix(prefix)
@@ -461,12 +482,139 @@ def command_completion(command: str, description: str, text: str) -> tuple[str, 
     return value, name, meta, -len(text)
 
 
+def command_argument_completions(conn: sqlite3.Connection, text: str) -> list[tuple[str, str, str, int]]:
+    if text.startswith("/tool "):
+        return option_completions(AGENT_OPTIONS, last_fragment(text), "agent")
+    if text.startswith("/verbose "):
+        return option_completions(VERBOSE_OPTIONS, last_fragment(text), "mode")
+    if text.startswith("/chat-model "):
+        return option_completions(CHAT_MODEL_OPTIONS, last_fragment(text), "local chat model")
+    if text.startswith("/memory-model "):
+        return option_completions(MEMORY_MODEL_OPTIONS, last_fragment(text), "memory extractor")
+    if text.startswith("/embedding-model "):
+        return option_completions(EMBEDDING_MODEL_OPTIONS, last_fragment(text), "embedding model")
+    if text == "/persona " or text.startswith("/persona "):
+        return persona_argument_completions(conn, text)
+    return []
+
+
+def persona_argument_completions(conn: sqlite3.Connection, text: str) -> list[tuple[str, str, str, int]]:
+    parts = text.split()
+    fragment = last_fragment(text)
+    if len(parts) == 1 or (len(parts) == 2 and not text.endswith(" ")):
+        return option_completions(PERSONA_ACTIONS, fragment, "persona command")
+    if len(parts) < 2:
+        return []
+    action = parts[1]
+    if action in {"use", "show", "delete"}:
+        return option_completions([persona["name"] for persona in list_personas(conn)], fragment, "persona")
+    if action != "add":
+        return []
+    arg_index = persona_add_arg_index(text)
+    if arg_index == 1:
+        return option_completions(AGENT_OPTIONS, fragment, "agent")
+    if arg_index == 2:
+        return option_completions(PERSONA_MODEL_OPTIONS, fragment, "model; use - for default")
+    return []
+
+
+def persona_add_arg_index(text: str) -> int:
+    parts = text.split()
+    arg_count = max(0, len(parts) - 2)
+    if text.endswith(" "):
+        return arg_count
+    return max(0, arg_count - 1)
+
+
+def option_completions(options: list[str], fragment: str, meta: str) -> list[tuple[str, str, str, int]]:
+    return [
+        (option + " ", option, meta, -len(fragment))
+        for option in options
+        if option.startswith(fragment)
+    ]
+
+
+def last_fragment(text: str) -> str:
+    if text.endswith(" "):
+        return ""
+    return text.rsplit(" ", 1)[-1]
+
+
+def get_instruction_hint(text: str) -> str:
+    if not text.startswith("/"):
+        return ""
+    if text.startswith("/tool"):
+        return "next: local | codex | codex-exec | claude | opencode"
+    if text.startswith("/verbose"):
+        return "next: on | off"
+    if text.startswith("/chat-model"):
+        return "next: MODEL, for example qwen3:0.6b or llama3.2"
+    if text.startswith("/memory-model"):
+        return "next: MODEL, for example qwen3:0.6b, heuristic, or off"
+    if text.startswith("/embedding-model"):
+        return "next: MODEL, for example nomic-embed-text or off"
+    if text.startswith("/persona"):
+        return get_persona_hint(text)
+    return ""
+
+
+def get_persona_hint(text: str) -> str:
+    parts = text.split()
+    if text == "/persona" or text == "/persona " or len(parts) == 1:
+        return "next: add | list | use | show | delete | clear"
+    action = parts[1]
+    if action == "add":
+        return persona_add_hint(text)
+    if action in {"use", "show", "delete"}:
+        return "next: NAME"
+    if action in {"list", "clear"}:
+        return ""
+    return "next: add | list | use | show | delete | clear"
+
+
+def persona_add_hint(text: str) -> str:
+    fields = ["NAME", "AGENT", "MODEL", "DESCRIPTION"]
+    parts = text.split()
+    completed = max(0, len(parts) - 2)
+    if completed and not text.endswith(" "):
+        completed = min(completed, len(fields))
+    remaining = fields[completed:]
+    if not remaining:
+        return ""
+    return "next: " + " ".join(remaining)
+
+
 def completion_options(conn: sqlite3.Connection, line: str, text: str, commands: list[str]) -> list[str]:
     if line.startswith("@"):
         return [f"@{persona['name']} " for persona in list_personas(conn) if f"@{persona['name']}".startswith(text)]
-    if line.startswith("/persona use ") or line.startswith("/persona show ") or line.startswith("/persona delete "):
-        prefix = text
-        return [persona["name"] for persona in list_personas(conn) if persona["name"].startswith(prefix)]
+    if line.startswith("/persona "):
+        return readline_persona_options(conn, line, text)
+    if line.startswith("/tool "):
+        return [agent for agent in AGENT_OPTIONS if agent.startswith(text)]
+    if line.startswith("/verbose "):
+        return [option for option in VERBOSE_OPTIONS if option.startswith(text)]
+    if line.startswith("/chat-model "):
+        return [model for model in CHAT_MODEL_OPTIONS if model.startswith(text)]
+    if line.startswith("/memory-model "):
+        return [model for model in MEMORY_MODEL_OPTIONS if model.startswith(text)]
+    if line.startswith("/embedding-model "):
+        return [model for model in EMBEDDING_MODEL_OPTIONS if model.startswith(text)]
     if line.startswith("/"):
         return [command for command in commands if command.startswith(line)]
+    return []
+
+
+def readline_persona_options(conn: sqlite3.Connection, line: str, text: str) -> list[str]:
+    parts = line.split()
+    if len(parts) == 1 or (len(parts) == 2 and not line.endswith(" ")):
+        return [action for action in PERSONA_ACTIONS if action.startswith(text)]
+    action = parts[1] if len(parts) > 1 else ""
+    if action in {"use", "show", "delete"}:
+        return [persona["name"] for persona in list_personas(conn) if persona["name"].startswith(text)]
+    if action == "add":
+        arg_index = persona_add_arg_index(line)
+        if arg_index == 1:
+            return [agent for agent in AGENT_OPTIONS if agent.startswith(text)]
+        if arg_index == 2:
+            return [model for model in PERSONA_MODEL_OPTIONS if model.startswith(text)]
     return []
