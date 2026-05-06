@@ -10,6 +10,22 @@ from .settings import get_memory_model, set_memory_model
 from .sessions import ask_session, create_session, get_session, process_pending_memory_jobs, set_session_agent
 
 
+COMMAND_HELP = [
+    ("/tool codex|claude|opencode", "switch underlying tool"),
+    ("/persona add NAME AGENT MODEL DESCRIPTION", "create persona"),
+    ("/persona list", "list personas"),
+    ("/persona use NAME", "set active persona"),
+    ("/persona show NAME", "show persona"),
+    ("/persona delete NAME", "delete persona"),
+    ("/persona clear", "clear active persona"),
+    ("/memory-model [MODEL]", "show or change memory extractor"),
+    ("/memories", "show memories"),
+    ("/session", "show session info"),
+    ("/verbose on|off", "toggle metadata"),
+    ("/exit", "leave Cogito"),
+]
+
+
 def run_chat(
     conn: sqlite3.Connection,
     *,
@@ -25,6 +41,7 @@ def run_chat(
     input_stream: TextIO = sys.stdin,
     output_stream: TextIO = sys.stdout,
 ) -> int:
+    interactive = input_stream is sys.stdin and sys.stdin.isatty()
     session = (
         get_session(conn, session_id)
         if session_id
@@ -42,8 +59,9 @@ def run_chat(
         try:
             if input_stream is sys.stdin:
                 prompt = ""
-                if sys.stdin.isatty():
-                    prompt = f"cogito[{session['active_agent']}]> " if verbose else "> "
+                if interactive:
+                    label = f"cogito[{session['active_agent']}]" if verbose else ">"
+                    prompt = color(label, "cyan") + " "
                 line = input(prompt)
             else:
                 line = input_stream.readline()
@@ -56,6 +74,9 @@ def run_chat(
 
         text = line.strip()
         if not text:
+            continue
+        if text == "/":
+            show_command_palette(output_stream)
             continue
         if text.startswith("/"):
             should_continue, session, active_persona = handle_command(
@@ -114,7 +135,7 @@ def handle_command(
     if name in {"/exit", "/quit", "/q"}:
         return False, session, active_persona
     if name == "/help":
-        write(output_stream, "Commands: /tool AGENT, /persona add|use|list|show|delete|clear, /memory-model [MODEL], /memories, /session, /verbose on|off, /exit")
+        show_command_palette(output_stream)
         write(output_stream, "Persona call: @name your request")
         return True, session, active_persona
     if name == "/verbose":
@@ -130,10 +151,11 @@ def handle_command(
     if name == "/memories":
         memories = list_memories(conn)[:10]
         if not memories:
-            write(output_stream, "No memories stored.")
+            write(output_stream, muted("No memories stored."))
         else:
             for memory in memories:
-                write(output_stream, f"- {memory['text']} [{memory['type']}, {memory['sensitivity']}]")
+                meta = f"[{memory['type']}, {memory['sensitivity']}]"
+                write(output_stream, f"{color('-', 'cyan')} {memory['text']} {muted(meta)}")
         return True, session, active_persona
     if name == "/tool":
         if len(parts) != 2:
@@ -175,10 +197,10 @@ def handle_persona_command(
     if len(parts) == 1 or parts[1] == "list":
         personas = list_personas(conn)
         if not personas:
-            write(output_stream, "No personas.")
+            write(output_stream, muted("No personas."))
         for persona in personas:
             model = persona.get("model") or "default"
-            write(output_stream, f"- {persona['name']}: {persona['agent']} {model}")
+            write(output_stream, f"{color('@' + persona['name'], 'magenta')}: {persona['agent']} {muted(model)}")
         return True, session, active_persona
     action = parts[1]
     if action == "add":
@@ -247,24 +269,40 @@ def write(stream: TextIO, text: str) -> None:
     stream.flush()
 
 
+def show_command_palette(output_stream: TextIO) -> None:
+    for command, description in COMMAND_HELP:
+        write(output_stream, f"{color(command, 'cyan')} {muted(description)}")
+
+
+def color(text: str, name: str) -> str:
+    codes = {
+        "cyan": "36",
+        "magenta": "35",
+        "gray": "90",
+    }
+    code = codes.get(name)
+    if not code:
+        return text
+    return f"\033[{code}m{text}\033[0m"
+
+
+def muted(text: str) -> str:
+    return color(text, "gray")
+
+
 def setup_autocomplete(conn: sqlite3.Connection) -> None:
     try:
         import readline
     except ImportError:
         return
 
-    commands = [
-        "/exit",
-        "/help",
-        "/memories",
-        "/memory-model",
+    commands = [item[0].split(" ")[0] for item in COMMAND_HELP] + [
         "/persona add",
         "/persona clear",
         "/persona delete",
         "/persona list",
         "/persona show",
         "/persona use",
-        "/session",
         "/tool claude",
         "/tool codex",
         "/tool opencode",

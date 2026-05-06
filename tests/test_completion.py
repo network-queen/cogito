@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import io
 import unittest
 
-from cogito.chat import completion_options
+from cogito.chat import completion_options, show_command_palette
 from cogito.db import connect
 from cogito.memory import ensure_db
 from cogito.personas import add_persona
@@ -20,7 +21,14 @@ class CompletionTests(unittest.TestCase):
         self.assertIn("@architect ", completion_options(conn, "@ar", "@ar", commands))
         self.assertIn("architect", completion_options(conn, "/persona use ar", "ar", commands))
 
+    def test_command_palette_prints_options(self):
+        output = io.StringIO()
+
+        show_command_palette(output)
+
+        self.assertIn("/persona add", output.getvalue())
+        self.assertIn("/verbose on|off", output.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()
-

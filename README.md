@@ -77,6 +77,7 @@ cogito[codex]> @explainer explain what architect suggested
 ```
 
 Slash commands and `@persona` names autocomplete with Tab in an interactive terminal.
+Typing `/` and pressing Enter shows the command palette. Prompts, personas, and metadata lists use terminal colors.
 
 Default memory extractor:
 
