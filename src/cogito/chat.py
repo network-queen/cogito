@@ -333,15 +333,17 @@ def run_split_tui(
         lambda: HTML(f"<ansigray>{html.escape(get_instruction_hint(input_area.text))}</ansigray>"),
         focusable=False,
     )
+    history = FileHistory(history_path())
+    history._loaded_strings = list(history.load_history_strings())
+    history._loaded = True
     input_area = TextArea(
         height=1,
         prompt=HTML("<ansicyan>&gt;</ansicyan> "),
         multiline=False,
         completer=CogitoCompleter(conn),
         complete_while_typing=True,
-        history=FileHistory(history_path()),
+        history=history,
     )
-    input_area.buffer.load_history_if_not_yet_loaded()
     root = FloatContainer(
         content=VSplit(
             [
