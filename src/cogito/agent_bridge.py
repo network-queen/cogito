@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from .memory import context_pack
@@ -67,9 +68,7 @@ def run_agent_capture(
     if shutil.which(binary) is None:
         raise RuntimeError(f"{binary} not found in PATH")
     if not stream:
-        completed = subprocess.run(command, text=True, capture_output=True, check=False)
-        output = "".join(part for part in (completed.stdout, completed.stderr) if part)
-        return {"exit_code": completed.returncode, "output": output}
+        return run_agent_quiet(agent, command)
 
     process = subprocess.Popen(
         command,
@@ -85,6 +84,46 @@ def run_agent_capture(
         sys.stdout.write(line)
         sys.stdout.flush()
     return {"exit_code": process.wait(), "output": "".join(output_parts)}
+
+
+def run_agent_quiet(agent: str, command: list[str]) -> dict[str, str | int]:
+    if agent in {"codex", "codex-exec"}:
+        with tempfile.NamedTemporaryFile("r+", delete=False) as tmp:
+            output_path = tmp.name
+        try:
+            quiet_command = command[:2] + ["--output-last-message", output_path] + command[2:]
+            completed = subprocess.run(quiet_command, text=True, capture_output=True, check=False)
+            output = Path(output_path).read_text().strip()
+            if not output:
+                output = extract_final_answer("".join(part for part in (completed.stdout, completed.stderr) if part))
+            return {"exit_code": completed.returncode, "output": output}
+        finally:
+            Path(output_path).unlink(missing_ok=True)
+
+    completed = subprocess.run(command, text=True, capture_output=True, check=False)
+    raw_output = "".join(part for part in (completed.stdout, completed.stderr) if part)
+    return {"exit_code": completed.returncode, "output": extract_final_answer(raw_output)}
+
+
+def extract_final_answer(output: str) -> str:
+    text = output.strip()
+    if not text:
+        return ""
+    lines = [line.rstrip() for line in text.splitlines()]
+    if "codex" in lines:
+        index = len(lines) - 1 - lines[::-1].index("codex")
+        answer = "\n".join(lines[index + 1 :]).strip()
+        if answer:
+            return trim_token_footer(answer)
+    return trim_token_footer(text)
+
+
+def trim_token_footer(output: str) -> str:
+    lines = output.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip().lower() == "tokens used":
+            return "\n".join(lines[:index]).strip()
+    return output.strip()
 
 
 def setup_agent(agent: str, cogito_bin: str | None = None) -> tuple[int, str]:

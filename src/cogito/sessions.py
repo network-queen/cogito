@@ -161,6 +161,8 @@ def ask_session(
         result = run_agent_capture(selected_agent, prompt, stream=stream, yolo=yolo, model=model)
         exit_code = int(result["exit_code"])
         output = str(result["output"])
+        if output and not stream:
+            print(output)
         add_turn(
             conn,
             session_id=session_id,

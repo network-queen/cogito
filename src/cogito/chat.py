@@ -86,7 +86,7 @@ def run_chat(
             agent=turn_agent,
             execute=execute,
             memory_mode=memory_mode,
-            stream=execute,
+            stream=execute and verbose,
             yolo=turn_yolo,
             model=turn_model,
             persona=turn_persona,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from cogito.agent_bridge import build_agent_command, build_enriched_prompt
+from cogito.agent_bridge import build_agent_command, build_enriched_prompt, extract_final_answer
 
 
 class AgentBridgeTests(unittest.TestCase):
@@ -24,7 +24,20 @@ class AgentBridgeTests(unittest.TestCase):
         self.assertIn("sonnet", claude)
         self.assertIn("--dangerously-skip-permissions", opencode)
 
+    def test_extract_final_answer_removes_codex_wrapper(self):
+        raw = """OpenAI Codex v0.128.0
+--------
+user
+hidden prompt
+
+codex
+I am fine.
+tokens used
+7,062
+"""
+
+        self.assertEqual(extract_final_answer(raw), "I am fine.")
+
 
 if __name__ == "__main__":
     unittest.main()
-
