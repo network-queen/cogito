@@ -9,7 +9,7 @@ import threading
 import time
 from typing import TextIO
 
-from .agent_bridge import run_agent_pty, stop_agent_pty
+from .agent_bridge import run_agent_capture, stop_agent_pty
 from .db import connect, default_db_path
 from .memory import list_memories
 from .persona_knowledge import add_persona_knowledge, list_persona_knowledge, research_persona_from_wikipedia
@@ -419,13 +419,13 @@ def run_split_tui(
                     on_output=lambda line: append_job(job, line),
                 )
             else:
-                result = run_agent_pty(
-                    key=persona["name"],
+                append_job(job, f"running {persona['agent']} in non-interactive mode")
+                result = run_agent_capture(
                     agent=persona["agent"],
                     prompt=enriched_prompt,
+                    stream=False,
                     yolo=yolo or bool(persona.get("yolo")),
                     model=persona.get("model"),
-                    on_output=lambda line: append_job(job, line),
                 )
                 captured = clean_terminal_text(str(result.get("output") or "")).strip()
                 add_turn(
@@ -439,6 +439,9 @@ def run_split_tui(
                 )
                 if not captured:
                     append_job(job, "no output captured")
+                else:
+                    append_job(job, captured)
+                    append_left(color(f"@{persona['name']}\n{captured}", "green"))
             with lock:
                 job["status"] = "done" if result["exit_code"] == 0 else f"exit {result['exit_code']}"
                 if "session" in result:
