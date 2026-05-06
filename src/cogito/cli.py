@@ -104,6 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
     chat.add_argument("--lens", default="coding")
     chat.add_argument("--max-sensitivity", default="professional")
     chat.add_argument("--print-prompt", action="store_true", help="Print enriched prompts instead of executing agents")
+    chat.add_argument("--memory-mode", choices=["background", "sync", "off"], default="background")
     chat.set_defaults(func=cmd_chat)
 
     memory_model = sub.add_parser("memory-model", help="Show or change local model used for memory extraction")
@@ -276,6 +277,7 @@ def cmd_chat(conn, args: argparse.Namespace) -> int:
         lens=args.lens,
         max_sensitivity=args.max_sensitivity,
         execute=not args.print_prompt,
+        memory_mode=args.memory_mode,
     )
 
 
@@ -322,6 +324,7 @@ def cmd_session_ask(conn, args: argparse.Namespace) -> int:
         agent=args.agent,
         limit=args.limit,
         execute=not args.print_prompt,
+        memory_mode="sync",
     )
     if args.print_prompt:
         print(result["prompt"])

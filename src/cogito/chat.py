@@ -6,7 +6,7 @@ from typing import TextIO
 
 from .memory import list_memories
 from .settings import get_memory_model, set_memory_model
-from .sessions import ask_session, create_session, get_session, set_session_agent
+from .sessions import ask_session, create_session, get_session, process_pending_memory_jobs, set_session_agent
 
 
 def run_chat(
@@ -18,6 +18,7 @@ def run_chat(
     lens: str = "coding",
     max_sensitivity: str = "professional",
     execute: bool = True,
+    memory_mode: str = "background",
     input_stream: TextIO = sys.stdin,
     output_stream: TextIO = sys.stdout,
 ) -> int:
@@ -26,6 +27,7 @@ def run_chat(
         if session_id
         else create_session(conn, title=title, agent=agent, lens=lens, max_sensitivity=max_sensitivity)
     )
+    process_pending_memory_jobs(conn, limit=3)
     write(output_stream, f"Cogito chat. Session: {session['id']}. Tool: {session['active_agent']}.")
     write(output_stream, "Commands: /tool codex|claude|opencode, /memory-model [model], /memories, /session, /help, /exit")
 
@@ -56,14 +58,12 @@ def run_chat(
             session_id=session["id"],
             user_prompt=text,
             execute=execute,
+            memory_mode=memory_mode,
             stream=execute,
         )
         session = result["session"]
         if not execute:
             write(output_stream, result["prompt"])
-        if result["stored_memories"]:
-            extractor = result["stored_memories"][0].get("extractor", "unknown")
-            write(output_stream, f"[cogito] stored {len(result['stored_memories'])} memory item(s) via {extractor}")
 
     write(output_stream, "Cogito session closed.")
     return 0

@@ -17,12 +17,13 @@ class ChatTests(unittest.TestCase):
         input_stream = io.StringIO("I prefer concise engineering answers\n/tool claude\nexplain tradeoffs\n/exit\n")
         output_stream = io.StringIO()
 
-        run_chat(conn, execute=False, input_stream=input_stream, output_stream=output_stream)
+        run_chat(conn, execute=False, memory_mode="sync", input_stream=input_stream, output_stream=output_stream)
 
         output = output_stream.getvalue()
         memories = list_memories(conn)
         self.assertIn("Tool: claude", output)
         self.assertIn("Cogito session closed.", output)
+        self.assertNotIn("[cogito] stored", output)
         self.assertTrue(any("prefer concise" in memory["text"] for memory in memories))
 
 

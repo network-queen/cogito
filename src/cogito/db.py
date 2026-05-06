@@ -76,11 +76,23 @@ CREATE TABLE IF NOT EXISTS settings (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS memory_jobs (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL,
+  content TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'pending',
+  error TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(event_id) REFERENCES events(id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_memories_state ON memories(state);
 CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type);
 CREATE INDEX IF NOT EXISTS idx_memories_sensitivity ON memories(sensitivity);
 CREATE INDEX IF NOT EXISTS idx_events_source ON events(source);
 CREATE INDEX IF NOT EXISTS idx_session_turns_session ON session_turns(session_id);
+CREATE INDEX IF NOT EXISTS idx_memory_jobs_state ON memory_jobs(state);
 """
 
 

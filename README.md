@@ -54,6 +54,7 @@ ollama:qwen3:0.6b
 ```
 
 Cogito auto-starts Ollama and pulls the model when possible. If Ollama is unavailable, it falls back to local heuristics.
+During chat, memory extraction runs silently in the background through a durable SQLite job queue. User prompts are routed to the selected agent without waiting for the memory model.
 
 Keep one Cogito session while switching tools:
 

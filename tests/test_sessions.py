@@ -28,6 +28,7 @@ class SessionTests(unittest.TestCase):
             user_prompt="review architecture",
             agent="codex",
             execute=False,
+            memory_mode="sync",
         )
         set_session_agent(conn, session_id=session["id"], agent="claude")
         second = ask_session(
@@ -35,6 +36,7 @@ class SessionTests(unittest.TestCase):
             session_id=session["id"],
             user_prompt="explain tradeoffs",
             execute=False,
+            memory_mode="sync",
         )
 
         self.assertEqual(first["agent"], "codex")

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import threading
 from typing import Any
 
 from .agent_bridge import build_enriched_prompt, run_agent_capture
-from .db import row_to_dict, rows_to_dicts
+from .db import connect, row_to_dict, rows_to_dicts
 from .ids import new_id
 from .local_extractor import extract_with_model
 from .memory import add_event, add_memory, context_pack
@@ -113,6 +114,7 @@ def ask_session(
     limit: int = 8,
     execute: bool = True,
     auto_memory: bool = True,
+    memory_mode: str = "sync",
     stream: bool = True,
 ) -> dict[str, Any]:
     session = get_session(conn, session_id)
@@ -133,14 +135,17 @@ def ask_session(
         content=user_prompt,
         metadata={"agent": selected_agent},
     )
-    stored_memories = (
-        extract_and_store_memories(conn, event_id=event["id"], text=user_prompt)
-        if auto_memory
-        else []
-    )
     add_turn(conn, session_id=session_id, agent=selected_agent, role="user", content=user_prompt)
     pack = context_pack(conn, query=user_prompt, request=request, limit=limit)
     prompt = build_session_prompt(session=session, turns=get_turns(conn, session_id=session_id), context=pack["context"], user_prompt=user_prompt)
+    stored_memories: list[dict[str, Any]] = []
+    if auto_memory:
+        if memory_mode == "background":
+            start_background_memory_extraction(conn, event_id=event["id"], text=user_prompt)
+        elif memory_mode == "sync":
+            stored_memories = extract_and_store_memories(conn, event_id=event["id"], text=user_prompt)
+        elif memory_mode != "off":
+            raise ValueError(f"unsupported memory mode: {memory_mode}")
     exit_code = None
     output = ""
     if execute:
@@ -232,3 +237,89 @@ def memory_text_exists(conn: sqlite3.Connection, text: str) -> bool:
         (text,),
     ).fetchone()
     return row is not None
+
+
+def start_background_memory_extraction(conn: sqlite3.Connection, *, event_id: str, text: str) -> None:
+    job = enqueue_memory_job(conn, event_id=event_id, text=text)
+    db_path = current_db_path(conn)
+    if not db_path:
+        return
+    thread = threading.Thread(
+        target=background_memory_worker,
+        kwargs={"db_path": db_path, "job_id": job["id"]},
+        daemon=True,
+    )
+    thread.start()
+
+
+def background_memory_worker(*, db_path: str, job_id: str | None = None) -> None:
+    try:
+        bg_conn = connect(db_path)
+        if job_id:
+            process_memory_job(bg_conn, job_id=job_id)
+        process_pending_memory_jobs(bg_conn, limit=3)
+    except Exception:
+        return
+
+
+def current_db_path(conn: sqlite3.Connection) -> str | None:
+    row = conn.execute("PRAGMA database_list").fetchone()
+    if row is None:
+        return None
+    path = row["file"] if isinstance(row, sqlite3.Row) else row[2]
+    return str(path) if path else None
+
+
+def enqueue_memory_job(conn: sqlite3.Connection, *, event_id: str, text: str) -> dict[str, Any]:
+    job_id = new_id("mjob")
+    conn.execute(
+        """
+        INSERT INTO memory_jobs (id, event_id, content)
+        VALUES (?, ?, ?)
+        """,
+        (job_id, event_id, text),
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM memory_jobs WHERE id = ?", (job_id,)).fetchone()
+    return row_to_dict(row)
+
+
+def process_memory_job(conn: sqlite3.Connection, *, job_id: str) -> None:
+    row = conn.execute("SELECT * FROM memory_jobs WHERE id = ?", (job_id,)).fetchone()
+    if row is None:
+        return
+    job = row_to_dict(row)
+    if job["state"] == "done":
+        return
+    try:
+        conn.execute(
+            "UPDATE memory_jobs SET state = 'processing', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (job_id,),
+        )
+        conn.commit()
+        extract_and_store_memories(conn, event_id=job["event_id"], text=job["content"])
+        conn.execute(
+            "UPDATE memory_jobs SET state = 'done', error = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (job_id,),
+        )
+        conn.commit()
+    except Exception as exc:
+        conn.execute(
+            "UPDATE memory_jobs SET state = 'failed', error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (str(exc), job_id),
+        )
+        conn.commit()
+
+
+def process_pending_memory_jobs(conn: sqlite3.Connection, *, limit: int = 5) -> None:
+    rows = conn.execute(
+        """
+        SELECT id FROM memory_jobs
+        WHERE state IN ('pending', 'failed')
+        ORDER BY created_at ASC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    for row in rows:
+        process_memory_job(conn, job_id=row["id"])
