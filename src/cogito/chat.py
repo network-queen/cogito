@@ -290,8 +290,9 @@ def run_split_tui(
         from prompt_toolkit.formatted_text import HTML
         from prompt_toolkit.history import FileHistory
         from prompt_toolkit.key_binding import KeyBindings
-        from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
+        from prompt_toolkit.layout import Float, FloatContainer, HSplit, Layout, VSplit, Window
         from prompt_toolkit.layout.controls import FormattedTextControl
+        from prompt_toolkit.layout.menus import CompletionsMenu
         from prompt_toolkit.widgets import TextArea
     except ImportError:
         write(output_stream, "prompt_toolkit not installed")
@@ -341,12 +342,17 @@ def run_split_tui(
         complete_while_typing=True,
         history=FileHistory(history_path()),
     )
-    root = VSplit(
-        [
-            HSplit([Window(transcript, wrap_lines=True), Window(hint, height=1), input_area], width=80),
-            Window(width=1, char="|", style="class:separator"),
-            Window(jobs, wrap_lines=True, width=52),
-        ]
+    root = FloatContainer(
+        content=VSplit(
+            [
+                HSplit([Window(transcript, wrap_lines=True), Window(hint, height=1), input_area], width=80),
+                Window(width=1, char="|", style="class:separator"),
+                Window(jobs, wrap_lines=True, width=52),
+            ]
+        ),
+        floats=[
+            Float(xcursor=True, ycursor=True, content=CompletionsMenu(max_height=12, scroll_offset=1)),
+        ],
     )
     kb = KeyBindings()
 
