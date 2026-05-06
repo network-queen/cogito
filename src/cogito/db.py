@@ -61,6 +61,11 @@ def default_db_path() -> Path:
 
 
 def connect(path: str | Path | None = None) -> sqlite3.Connection:
+    if path == ":memory:":
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys=ON")
+        return conn
     db_path = Path(path) if path else default_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
@@ -84,4 +89,3 @@ def row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
 
 def rows_to_dicts(rows: Iterable[sqlite3.Row]) -> list[dict[str, Any]]:
     return [row_to_dict(row) for row in rows]
-
