@@ -393,16 +393,6 @@ def run_split_tui(
             if not db_path:
                 raise RuntimeError("background persona calls need a file-backed Cogito DB")
             bg_conn = connect(db_path)
-            result = ask_session(
-                bg_conn,
-                session_id=state["session"]["id"],
-                user_prompt=routed_text,
-                agent=persona["agent"],
-                execute=False,
-                memory_mode=memory_mode,
-                persona=persona,
-            )
-            enriched_prompt = str(result["prompt"])
             if persona["agent"] == "local":
                 result = ask_session(
                     bg_conn,
@@ -410,7 +400,7 @@ def run_split_tui(
                     user_prompt=routed_text,
                     agent=persona["agent"],
                     execute=True,
-                    memory_mode="off",
+                    memory_mode=memory_mode,
                     stream=True,
                     yolo=yolo or bool(persona.get("yolo")),
                     model=persona.get("model"),
@@ -418,7 +408,22 @@ def run_split_tui(
                     echo_output=False,
                     on_output=lambda line: append_job(job, line),
                 )
+                captured = clean_terminal_text(str(result.get("output") or "")).strip()
+                if not captured:
+                    append_job(job, "no output captured")
+                else:
+                    append_left(color(f"@{persona['name']}\n{captured}", "green"))
             else:
+                result = ask_session(
+                    bg_conn,
+                    session_id=state["session"]["id"],
+                    user_prompt=routed_text,
+                    agent=persona["agent"],
+                    execute=False,
+                    memory_mode=memory_mode,
+                    persona=persona,
+                )
+                enriched_prompt = str(result["prompt"])
                 append_job(job, f"running {persona['agent']} in non-interactive mode")
                 result = run_agent_capture(
                     agent=persona["agent"],
