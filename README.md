@@ -29,9 +29,20 @@ cogito context-pack "software architecture" --lens coding --max-sensitivity prof
 Run an agent with Cogito context prepended:
 
 ```sh
+cogito chat
 cogito ask codex "help me design the next Cogito feature"
 cogito ask claude "summarize what this project does"
 cogito ask opencode "inspect this repo"
+```
+
+Inside `cogito chat`:
+
+```text
+cogito[codex]> review this repo
+cogito[codex]> /tool claude
+cogito[claude]> explain the tradeoffs
+cogito[claude]> /memories
+cogito[claude]> /exit
 ```
 
 Keep one Cogito session while switching tools:

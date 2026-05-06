@@ -10,7 +10,7 @@ from .policy import ContextRequest
 
 
 AGENT_COMMANDS = {
-    "codex": lambda prompt: ["codex", prompt],
+    "codex": lambda prompt: ["codex", "exec", prompt],
     "codex-exec": lambda prompt: ["codex", "exec", prompt],
     "claude": lambda prompt: ["claude", "-p", prompt],
     "opencode": lambda prompt: ["opencode", "run", prompt],
@@ -33,12 +33,36 @@ def get_prompt(conn, *, user_prompt: str, request: ContextRequest, limit: int) -
 
 
 def run_agent(agent: str, prompt: str) -> int:
+    result = run_agent_capture(agent, prompt, stream=True)
+    return int(result["exit_code"])
+
+
+def run_agent_capture(agent: str, prompt: str, *, stream: bool = True) -> dict[str, str | int]:
     if agent not in AGENT_COMMANDS:
         raise ValueError(f"unsupported agent: {agent}")
-    binary = AGENT_COMMANDS[agent](prompt)[0]
+    command = AGENT_COMMANDS[agent](prompt)
+    binary = command[0]
     if shutil.which(binary) is None:
         raise RuntimeError(f"{binary} not found in PATH")
-    return subprocess.run(AGENT_COMMANDS[agent](prompt), check=False).returncode
+    if not stream:
+        completed = subprocess.run(command, text=True, capture_output=True, check=False)
+        output = "".join(part for part in (completed.stdout, completed.stderr) if part)
+        return {"exit_code": completed.returncode, "output": output}
+
+    process = subprocess.Popen(
+        command,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        bufsize=1,
+    )
+    output_parts: list[str] = []
+    assert process.stdout is not None
+    for line in process.stdout:
+        output_parts.append(line)
+        sys.stdout.write(line)
+        sys.stdout.flush()
+    return {"exit_code": process.wait(), "output": "".join(output_parts)}
 
 
 def setup_agent(agent: str, cogito_bin: str | None = None) -> tuple[int, str]:
@@ -71,4 +95,3 @@ def find_cogito_command() -> str:
     if found:
         return found
     return f"{sys.executable} -m cogito.cli"
-

@@ -5,6 +5,7 @@ import json
 import sys
 
 from .agent_bridge import get_prompt, run_agent, setup_agent
+from .chat import run_chat
 from .db import connect, default_db_path
 from .extraction import extract_candidate_memories
 from .mcp_server import run_mcp_server
@@ -94,6 +95,15 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--limit", type=int, default=8)
     run.add_argument("--print-prompt", action="store_true", help="Print enriched prompt instead of executing agent")
     run.set_defaults(func=cmd_run)
+
+    chat = sub.add_parser("chat", help="Enter a Cogito terminal chat that routes turns to selected agent")
+    chat.add_argument("--agent", default="codex", choices=["codex", "claude", "opencode"])
+    chat.add_argument("--session", help="Existing session id")
+    chat.add_argument("--title", default="Cogito chat")
+    chat.add_argument("--lens", default="coding")
+    chat.add_argument("--max-sensitivity", default="professional")
+    chat.add_argument("--print-prompt", action="store_true", help="Print enriched prompts instead of executing agents")
+    chat.set_defaults(func=cmd_chat)
 
     session = sub.add_parser("session", help="Manage Cogito sessions")
     session_sub = session.add_subparsers(required=True)
@@ -250,6 +260,18 @@ def cmd_run(conn, args: argparse.Namespace) -> int:
     else:
         print(f"Cogito session: {session['id']}")
     return result["exit_code"] or 0
+
+
+def cmd_chat(conn, args: argparse.Namespace) -> int:
+    return run_chat(
+        conn,
+        agent=args.agent,
+        session_id=args.session,
+        title=args.title,
+        lens=args.lens,
+        max_sensitivity=args.max_sensitivity,
+        execute=not args.print_prompt,
+    )
 
 
 def cmd_session_new(conn, args: argparse.Namespace) -> int:

@@ -4,10 +4,11 @@ import os
 import sqlite3
 from typing import Any
 
-from .agent_bridge import build_enriched_prompt, run_agent
+from .agent_bridge import build_enriched_prompt, run_agent_capture
 from .db import row_to_dict, rows_to_dicts
+from .extraction import extract_candidate_memories
 from .ids import new_id
-from .memory import add_event, context_pack
+from .memory import add_event, add_memory, context_pack
 from .policy import ContextRequest
 
 
@@ -110,6 +111,8 @@ def ask_session(
     agent: str | None = None,
     limit: int = 8,
     execute: bool = True,
+    auto_memory: bool = True,
+    stream: bool = True,
 ) -> dict[str, Any]:
     session = get_session(conn, session_id)
     selected_agent = agent or session["active_agent"]
@@ -122,25 +125,29 @@ def ask_session(
         agent=selected_agent,
         purpose="session_context",
     )
-    add_event(
+    event = add_event(
         conn,
         source=f"session:{session_id}",
         role="user",
         content=user_prompt,
         metadata={"agent": selected_agent},
     )
+    stored_memories = extract_and_store_memories(conn, event_id=event["id"], text=user_prompt) if auto_memory else []
     add_turn(conn, session_id=session_id, agent=selected_agent, role="user", content=user_prompt)
     pack = context_pack(conn, query=user_prompt, request=request, limit=limit)
     prompt = build_session_prompt(session=session, turns=get_turns(conn, session_id=session_id), context=pack["context"], user_prompt=user_prompt)
     exit_code = None
+    output = ""
     if execute:
-        exit_code = run_agent(selected_agent, prompt)
+        result = run_agent_capture(selected_agent, prompt, stream=stream)
+        exit_code = int(result["exit_code"])
+        output = str(result["output"])
         add_turn(
             conn,
             session_id=session_id,
             agent=selected_agent,
             role="agent",
-            content=f"Agent process exited with code {exit_code}.",
+            content=output or f"Agent process exited with code {exit_code}.",
             prompt=prompt,
             exit_code=exit_code,
         )
@@ -149,7 +156,9 @@ def ask_session(
         "agent": selected_agent,
         "prompt": prompt,
         "context_pack": pack,
+        "stored_memories": stored_memories,
         "exit_code": exit_code,
+        "output": output,
     }
 
 
@@ -187,3 +196,30 @@ def compact(value: str, max_chars: int) -> str:
 def validate_agent(agent: str) -> None:
     if agent not in SUPPORTED_AGENTS:
         raise ValueError(f"unsupported agent: {agent}")
+
+
+def extract_and_store_memories(conn: sqlite3.Connection, *, event_id: str, text: str) -> list[dict[str, Any]]:
+    memories = []
+    for candidate in extract_candidate_memories(text):
+        if memory_text_exists(conn, candidate["text"]):
+            continue
+        memories.append(
+            add_memory(
+                conn,
+                text=candidate["text"],
+                memory_type=candidate["type"],
+                sensitivity=candidate["sensitivity"],
+                contexts=candidate["contexts"],
+                confidence=candidate["confidence"],
+                source_event_id=event_id,
+            )
+        )
+    return memories
+
+
+def memory_text_exists(conn: sqlite3.Connection, text: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM memories WHERE text = ? AND state != 'deleted' LIMIT 1",
+        (text,),
+    ).fetchone()
+    return row is not None
